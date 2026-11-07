@@ -19,6 +19,7 @@ import { Route as PrivacyRouteImport } from './routes/privacy'
 import { Route as ProductRouteImport } from './routes/product'
 import { Route as TermsRouteImport } from './routes/terms'
 import { Route as AppIndexRouteImport } from './routes/app.index'
+import { Route as AppNewRouteImport } from './routes/app.new'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -70,6 +71,11 @@ const AppIndexRoute = AppIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AppRoute,
 } as any)
+const AppNewRoute = AppNewRouteImport.update({
+  id: '/new',
+  path: '/new',
+  getParentRoute: () => AppRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -81,6 +87,7 @@ export interface FileRoutesByFullPath {
   '/privacy': typeof PrivacyRoute
   '/product': typeof ProductRoute
   '/terms': typeof TermsRoute
+  '/app/new': typeof AppNewRoute
   '/app/': typeof AppIndexRoute
 }
 export interface FileRoutesByTo {
@@ -92,6 +99,7 @@ export interface FileRoutesByTo {
   '/privacy': typeof PrivacyRoute
   '/product': typeof ProductRoute
   '/terms': typeof TermsRoute
+  '/app/new': typeof AppNewRoute
   '/app': typeof AppIndexRoute
 }
 export interface FileRoutesById {
@@ -105,6 +113,7 @@ export interface FileRoutesById {
   '/privacy': typeof PrivacyRoute
   '/product': typeof ProductRoute
   '/terms': typeof TermsRoute
+  '/app/new': typeof AppNewRoute
   '/app/': typeof AppIndexRoute
 }
 export interface FileRouteTypes {
@@ -119,6 +128,7 @@ export interface FileRouteTypes {
     | '/privacy'
     | '/product'
     | '/terms'
+    | '/app/new'
     | '/app/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -130,6 +140,7 @@ export interface FileRouteTypes {
     | '/privacy'
     | '/product'
     | '/terms'
+    | '/app/new'
     | '/app'
   id:
     | '__root__'
@@ -142,6 +153,7 @@ export interface FileRouteTypes {
     | '/privacy'
     | '/product'
     | '/terms'
+    | '/app/new'
     | '/app/'
   fileRoutesById: FileRoutesById
 }
@@ -229,14 +241,23 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppIndexRouteImport
       parentRoute: typeof AppRoute
     }
+    '/app/new': {
+      id: '/app/new'
+      path: '/new'
+      fullPath: '/app/new'
+      preLoaderRoute: typeof AppNewRouteImport
+      parentRoute: typeof AppRoute
+    }
   }
 }
 
 interface AppRouteChildren {
+  AppNewRoute: typeof AppNewRoute
   AppIndexRoute: typeof AppIndexRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
+  AppNewRoute: AppNewRoute,
   AppIndexRoute: AppIndexRoute,
 }
 
