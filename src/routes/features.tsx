@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { PageIntro, SiteFooter, SiteHeader } from "@/components/gathr/site-chrome";
-import { FEATURES } from "./index";
+import { FEATURES } from "@/components/gathr/features-list";
 
 export const Route = createFileRoute("/features")({
   head: () => ({
