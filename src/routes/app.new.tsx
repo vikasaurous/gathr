@@ -52,7 +52,7 @@ function NewBatch() {
   async function start() {
     if (!valid.length) return;
     const id = nextBatchId(ws);
-    const batchName = name.trim() || (valid.length === 1 ? valid[0].file.name.replace(/\.pdf$/i, "") : `${valid.length} invoices · ${new Date().toLocaleDateString("en-GB")}`);
+    const batchName = name.trim() || (valid.length === 1 ? valid[0]!.file.name.replace(/\.pdf$/i, "") : `${valid.length} invoices · ${new Date().toLocaleDateString("en-GB")}`);
     setRun({ stage: 0, progress: 0 });
     try {
       const res = await demoEngine.run({ batchId: id, name: batchName, files: valid.map((v) => v.file), prefs: ws.prefs }, (stage, progress) => setRun({ stage, progress }));

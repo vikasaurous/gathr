@@ -32,17 +32,17 @@ export interface GenOptions {
   startPage: number;
   seed: number;
   baseDate: string;
-  flaw?: "missing_number" | "bad_gstin" | "total_mismatch" | "missing_date" | "low_conf" | null;
-  duplicateOf?: Invoice;
+  flaw?: undefined | "missing_number" | "bad_gstin" | "total_mismatch" | "missing_date" | "low_conf" | null;
+  duplicateOf?: Invoice | undefined;
 }
 
 export function generateInvoice(id: string, o: GenOptions): Invoice {
   const r = rng(o.seed);
   const sup = o.duplicateOf
-    ? SUPPLIERS.find((s) => s.name === o.duplicateOf!.fields.supplier.value) ?? SUPPLIERS[0]
-    : SUPPLIERS[Math.floor(r() * SUPPLIERS.length)];
+    ? SUPPLIERS.find((s) => s.name === o.duplicateOf!.fields.supplier.value) ?? SUPPLIERS[0]!
+    : SUPPLIERS[Math.floor(r() * SUPPLIERS.length)]!;
   const taxable = o.duplicateOf ? Number(o.duplicateOf.fields.taxableValue.value) : Math.round((2000 + r() * 180000) * 100) / 100;
-  const rate = [0.05, 0.12, 0.18, 0.18, 0.28][Math.floor(r() * 5)];
+  const rate = [0.05, 0.12, 0.18, 0.18, 0.28][Math.floor(r() * 5)]!;
   const tax = Math.round(taxable * rate * 100) / 100;
   const intra = sup.state === "intra";
   const half = Math.round((tax / 2) * 100) / 100;
@@ -102,7 +102,7 @@ function seedBatch(
   const sourceFiles = files.map((f, fi) => {
     let page = 1;
     for (let k = 0; k < perFile[fi]; k++) {
-      const inv = generateInvoice(`${id}-${String(n + 1).padStart(3, "0")}`, {
+      const inv: Invoice = generateInvoice(`${id}-${String(n + 1).padStart(3, "0")}`, {
         batchId: id,
         sourceFile: f.name,
         startPage: page,
@@ -117,6 +117,7 @@ function seedBatch(
     }
     return { name: f.name, size: f.size, pageCount: page - 1 };
   });
+  void 0;
   const verifyCount = Math.floor(invoices.length * verifyRatio);
   invoices.forEach((inv, i) => {
     if (i < verifyCount && !flaws[i] && i !== dupIdx) {
