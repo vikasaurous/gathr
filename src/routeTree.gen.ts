@@ -19,7 +19,11 @@ import { Route as PrivacyRouteImport } from './routes/privacy'
 import { Route as ProductRouteImport } from './routes/product'
 import { Route as TermsRouteImport } from './routes/terms'
 import { Route as AppIndexRouteImport } from './routes/app.index'
+import { Route as AppInvoicesRouteImport } from './routes/app.invoices'
 import { Route as AppNewRouteImport } from './routes/app.new'
+import { Route as AppSettingsRouteImport } from './routes/app.settings'
+import { Route as AppBatchesIndexRouteImport } from './routes/app.batches.index'
+import { Route as AppBatchesIdRouteImport } from './routes/app.batches.$id'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -71,9 +75,29 @@ const AppIndexRoute = AppIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AppRoute,
 } as any)
+const AppInvoicesRoute = AppInvoicesRouteImport.update({
+  id: '/invoices',
+  path: '/invoices',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppNewRoute = AppNewRouteImport.update({
   id: '/new',
   path: '/new',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSettingsRoute = AppSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppBatchesIndexRoute = AppBatchesIndexRouteImport.update({
+  id: '/batches/',
+  path: '/batches/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppBatchesIdRoute = AppBatchesIdRouteImport.update({
+  id: '/batches/$id',
+  path: '/batches/$id',
   getParentRoute: () => AppRoute,
 } as any)
 
@@ -87,8 +111,12 @@ export interface FileRoutesByFullPath {
   '/privacy': typeof PrivacyRoute
   '/product': typeof ProductRoute
   '/terms': typeof TermsRoute
+  '/app/invoices': typeof AppInvoicesRoute
   '/app/new': typeof AppNewRoute
+  '/app/settings': typeof AppSettingsRoute
   '/app/': typeof AppIndexRoute
+  '/app/batches/$id': typeof AppBatchesIdRoute
+  '/app/batches/': typeof AppBatchesIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -99,8 +127,12 @@ export interface FileRoutesByTo {
   '/privacy': typeof PrivacyRoute
   '/product': typeof ProductRoute
   '/terms': typeof TermsRoute
+  '/app/invoices': typeof AppInvoicesRoute
   '/app/new': typeof AppNewRoute
+  '/app/settings': typeof AppSettingsRoute
   '/app': typeof AppIndexRoute
+  '/app/batches/$id': typeof AppBatchesIdRoute
+  '/app/batches': typeof AppBatchesIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -113,8 +145,12 @@ export interface FileRoutesById {
   '/privacy': typeof PrivacyRoute
   '/product': typeof ProductRoute
   '/terms': typeof TermsRoute
+  '/app/invoices': typeof AppInvoicesRoute
   '/app/new': typeof AppNewRoute
+  '/app/settings': typeof AppSettingsRoute
   '/app/': typeof AppIndexRoute
+  '/app/batches/$id': typeof AppBatchesIdRoute
+  '/app/batches/': typeof AppBatchesIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -128,8 +164,12 @@ export interface FileRouteTypes {
     | '/privacy'
     | '/product'
     | '/terms'
+    | '/app/invoices'
     | '/app/new'
+    | '/app/settings'
     | '/app/'
+    | '/app/batches/$id'
+    | '/app/batches/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -140,8 +180,12 @@ export interface FileRouteTypes {
     | '/privacy'
     | '/product'
     | '/terms'
+    | '/app/invoices'
     | '/app/new'
+    | '/app/settings'
     | '/app'
+    | '/app/batches/$id'
+    | '/app/batches'
   id:
     | '__root__'
     | '/'
@@ -153,8 +197,12 @@ export interface FileRouteTypes {
     | '/privacy'
     | '/product'
     | '/terms'
+    | '/app/invoices'
     | '/app/new'
+    | '/app/settings'
     | '/app/'
+    | '/app/batches/$id'
+    | '/app/batches/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -241,6 +289,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppIndexRouteImport
       parentRoute: typeof AppRoute
     }
+    '/app/invoices': {
+      id: '/app/invoices'
+      path: '/invoices'
+      fullPath: '/app/invoices'
+      preLoaderRoute: typeof AppInvoicesRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/app/new': {
       id: '/app/new'
       path: '/new'
@@ -248,17 +303,46 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppNewRouteImport
       parentRoute: typeof AppRoute
     }
+    '/app/settings': {
+      id: '/app/settings'
+      path: '/settings'
+      fullPath: '/app/settings'
+      preLoaderRoute: typeof AppSettingsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/batches/': {
+      id: '/app/batches/'
+      path: '/batches'
+      fullPath: '/app/batches/'
+      preLoaderRoute: typeof AppBatchesIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/batches/$id': {
+      id: '/app/batches/$id'
+      path: '/batches/$id'
+      fullPath: '/app/batches/$id'
+      preLoaderRoute: typeof AppBatchesIdRouteImport
+      parentRoute: typeof AppRoute
+    }
   }
 }
 
 interface AppRouteChildren {
+  AppInvoicesRoute: typeof AppInvoicesRoute
   AppNewRoute: typeof AppNewRoute
+  AppSettingsRoute: typeof AppSettingsRoute
   AppIndexRoute: typeof AppIndexRoute
+  AppBatchesIdRoute: typeof AppBatchesIdRoute
+  AppBatchesIndexRoute: typeof AppBatchesIndexRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
+  AppInvoicesRoute: AppInvoicesRoute,
   AppNewRoute: AppNewRoute,
+  AppSettingsRoute: AppSettingsRoute,
   AppIndexRoute: AppIndexRoute,
+  AppBatchesIdRoute: AppBatchesIdRoute,
+  AppBatchesIndexRoute: AppBatchesIndexRoute,
 }
 
 const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
