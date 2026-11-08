@@ -72,7 +72,9 @@ export function SiteFooter() {
       <div className="mx-auto grid max-w-[1240px] gap-12 px-6 py-16 md:grid-cols-12">
         <div className="md:col-span-6">
           <Wordmark />
-          <p className="mt-4 max-w-xs text-sm text-muted-foreground">Bring every invoice together.</p>
+          <p className="mt-4 max-w-xs text-sm text-muted-foreground">
+            Bring every invoice together.
+          </p>
         </div>
         {cols.map((c) => (
           <div key={c.h} className="md:col-span-3">
@@ -80,7 +82,10 @@ export function SiteFooter() {
             <ul className="space-y-2.5">
               {c.items.map(([to, l]) => (
                 <li key={to}>
-                  <Link to={to} className="text-sm text-foreground/80 transition-colors hover:text-foreground">
+                  <Link
+                    to={to}
+                    className="text-sm text-foreground/80 transition-colors hover:text-foreground"
+                  >
                     {l}
                   </Link>
                 </li>
@@ -90,7 +95,7 @@ export function SiteFooter() {
         ))}
       </div>
       <div className="mx-auto flex max-w-[1240px] justify-between border-t border-border px-6 py-6 text-xs text-muted-foreground">
-        <span>© 2026 gathr</span>
+        <span>© {new Date().getFullYear()} gathr</span>{" "}
         <span className="num">v0.1 · prototype</span>
       </div>
     </footer>
