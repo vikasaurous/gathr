@@ -21,6 +21,7 @@ import { Route as TermsRouteImport } from './routes/terms'
 import { Route as AppIndexRouteImport } from './routes/app.index'
 import { Route as AppNewRouteImport } from './routes/app.new'
 import { Route as AppBatchesIndexRouteImport } from './routes/app.batches.index'
+import { Route as AppBatchesIdRouteImport } from './routes/app.batches.$id'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -82,6 +83,11 @@ const AppBatchesIndexRoute = AppBatchesIndexRouteImport.update({
   path: '/batches/',
   getParentRoute: () => AppRoute,
 } as any)
+const AppBatchesIdRoute = AppBatchesIdRouteImport.update({
+  id: '/batches/$id',
+  path: '/batches/$id',
+  getParentRoute: () => AppRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -95,6 +101,7 @@ export interface FileRoutesByFullPath {
   '/terms': typeof TermsRoute
   '/app/new': typeof AppNewRoute
   '/app/': typeof AppIndexRoute
+  '/app/batches/$id': typeof AppBatchesIdRoute
   '/app/batches/': typeof AppBatchesIndexRoute
 }
 export interface FileRoutesByTo {
@@ -108,6 +115,7 @@ export interface FileRoutesByTo {
   '/terms': typeof TermsRoute
   '/app/new': typeof AppNewRoute
   '/app': typeof AppIndexRoute
+  '/app/batches/$id': typeof AppBatchesIdRoute
   '/app/batches': typeof AppBatchesIndexRoute
 }
 export interface FileRoutesById {
@@ -123,6 +131,7 @@ export interface FileRoutesById {
   '/terms': typeof TermsRoute
   '/app/new': typeof AppNewRoute
   '/app/': typeof AppIndexRoute
+  '/app/batches/$id': typeof AppBatchesIdRoute
   '/app/batches/': typeof AppBatchesIndexRoute
 }
 export interface FileRouteTypes {
@@ -139,6 +148,7 @@ export interface FileRouteTypes {
     | '/terms'
     | '/app/new'
     | '/app/'
+    | '/app/batches/$id'
     | '/app/batches/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -152,6 +162,7 @@ export interface FileRouteTypes {
     | '/terms'
     | '/app/new'
     | '/app'
+    | '/app/batches/$id'
     | '/app/batches'
   id:
     | '__root__'
@@ -166,6 +177,7 @@ export interface FileRouteTypes {
     | '/terms'
     | '/app/new'
     | '/app/'
+    | '/app/batches/$id'
     | '/app/batches/'
   fileRoutesById: FileRoutesById
 }
@@ -267,18 +279,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppBatchesIndexRouteImport
       parentRoute: typeof AppRoute
     }
+    '/app/batches/$id': {
+      id: '/app/batches/$id'
+      path: '/batches/$id'
+      fullPath: '/app/batches/$id'
+      preLoaderRoute: typeof AppBatchesIdRouteImport
+      parentRoute: typeof AppRoute
+    }
   }
 }
 
 interface AppRouteChildren {
   AppNewRoute: typeof AppNewRoute
   AppIndexRoute: typeof AppIndexRoute
+  AppBatchesIdRoute: typeof AppBatchesIdRoute
   AppBatchesIndexRoute: typeof AppBatchesIndexRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
   AppNewRoute: AppNewRoute,
   AppIndexRoute: AppIndexRoute,
+  AppBatchesIdRoute: AppBatchesIdRoute,
   AppBatchesIndexRoute: AppBatchesIndexRoute,
 }
 
