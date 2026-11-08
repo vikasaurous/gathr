@@ -33,7 +33,10 @@ export function ExportDialog({ invoices, trigger, label }: { invoices: Invoice[]
   const sample = selected[0] ?? invoices[0];
 
   function run() {
-    if (!selected.length) return toast.error("No invoices match these options.");
+    if (!selected.length) {
+      toast.error("No invoices match these options.");
+      return;
+    }
     if (f.works) {
       downloadText(`gathr_${label.replace(/\W+/g, "-").toLowerCase()}.csv`, invoicesToCsv(selected));
       toast.success(`CSV with ${selected.length} demo records downloaded`);

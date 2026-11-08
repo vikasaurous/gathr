@@ -9,7 +9,7 @@ export const MAX_FILES = 25;
 export interface QueuedFile {
   id: string;
   file: File;
-  error?: string;
+  error?: string | undefined;
 }
 
 export function checkFile(f: File): string | undefined {
@@ -17,6 +17,7 @@ export function checkFile(f: File): string | undefined {
   if (!isPdf) return "Only PDF files are supported.";
   if (f.size > MAX_FILE_BYTES) return "File is larger than 50 MB.";
   if (f.size === 0) return "File is empty.";
+  return undefined;
 }
 
 export function FileDrop({ files, onAdd, onRemove, disabled }: { files: QueuedFile[]; onAdd: (f: File[]) => void; onRemove: (id: string) => void; disabled?: boolean }) {

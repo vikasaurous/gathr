@@ -41,7 +41,7 @@ export function DocumentPage({
             ].map(([l, v, k]) => (
               <div key={k}>
                 <p className="text-[0.85em] uppercase tracking-wider text-muted-foreground">{l}</p>
-                <p className={cn("num mt-[0.3em]", hl(k), !v && "text-destructive")}>{v || "not found"}</p>
+                <p className={cn("num mt-[0.3em]", hl(k ?? ""), !v && "text-destructive")}>{v || "not found"}</p>
               </div>
             ))}
           </div>
@@ -62,7 +62,7 @@ export function DocumentPage({
             ].map(([l, v, k]) => (
               <div key={k} className="flex justify-between text-muted-foreground">
                 <span>{l}</span>
-                <span className={cn("num", hl(k))}>{formatMoney(v)}</span>
+                <span className={cn("num", hl(k ?? ""))}>{formatMoney(v ?? "")}</span>
               </div>
             ))}
             <div className="flex justify-between border-t border-foreground pt-[0.6em] text-[1.3em]">

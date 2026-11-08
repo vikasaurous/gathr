@@ -18,7 +18,7 @@ import { validateInvoice } from "@/lib/gathr/validation";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/app/batches/$id")({
-  validateSearch: (s: Record<string, unknown>): { invoice?: string } => ({ invoice: typeof s.invoice === "string" ? s.invoice : undefined }),
+  validateSearch: (s: Record<string, unknown>): { invoice?: string | undefined } => ({ invoice: typeof s["invoice"] === "string" ? s["invoice"] : undefined }),
   head: ({ params }) => ({
     meta: [
       { title: `Review ${params.id} — gathr` },
@@ -38,7 +38,7 @@ function Review() {
   const navigate = useNavigate({ from: Route.fullPath });
   const ws = useWorkspace();
   const batch = ws.batches.find((b) => b.id === id);
-  const invoices = useMemo(() => ws.invoices.filter((i) => i.batchId === id).sort((a, b) => a.sourceFile.localeCompare(b.sourceFile) || a.pages[0] - b.pages[0]), [ws.invoices, id]);
+  const invoices = useMemo(() => ws.invoices.filter((i) => i.batchId === id).sort((a, b) => a.sourceFile.localeCompare(b.sourceFile) || (a.pages[0] ?? 0) - (b.pages[0] ?? 0)), [ws.invoices, id]);
   const current = invoices.find((i) => i.id === search.invoice) ?? invoices.find((i) => i.status === "needs_review") ?? invoices[0];
   const idx = current ? invoices.indexOf(current) : -1;
 
@@ -53,7 +53,7 @@ function Review() {
   useEffect(() => {
     if (current) {
       setDraft(draftOf(current));
-      setPage(current.pages[0]);
+      setPage(current.pages[0] ?? 1);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [current?.id]);
@@ -66,12 +66,13 @@ function Review() {
   const issues = validateInvoice(live, ws.invoices);
   const dirty = (Object.keys(draft) as FieldKey[]).some((k) => draft[k] !== current.fields[k].value);
   const errors = issues.filter((i) => i.severity === "error").length;
-  const file = batch.files.find((f) => f.name === current.sourceFile) ?? batch.files[0];
+  const file = batch.files.find((f) => f.name === current.sourceFile) ?? batch.files[0]!;
   const fileInvoices = invoices.filter((i) => i.sourceFile === file.name);
   const pageOwner = fileInvoices.find((i) => i.pages.includes(page));
   const go = (i: number) => {
     if (dirty) actions.saveFields(current.id, draft);
     const t = invoices[Math.max(0, Math.min(invoices.length - 1, i))];
+    if (!t) return;
     navigate({ search: { invoice: t.id }, replace: true });
   };
   const save = () => { actions.saveFields(current.id, draft); toast.success("Corrections saved"); };

@@ -7,7 +7,7 @@ import { InvoiceStatusPill, SourceTag } from "./status";
 import { FIELD_META } from "@/lib/gathr/types";
 
 const demo = buildDemoState();
-const batch = demo.batches[0];
+const batch = demo.batches[0]!;
 const invs = demo.invoices.filter((i) => i.batchId === batch.id);
 
 /** Static product composition built from the same components/data as the app. */
@@ -29,7 +29,7 @@ export function HeroPreview() {
         </div>
         <div className="grid grid-cols-4 border-b border-border">
           {[
-            ["Pages", batch.files[0].pageCount],
+            ["Pages", batch.files[0]!.pageCount],
             ["Invoices", invs.length],
             ["Verified", verified],
             ["Review", invs.length - verified],
@@ -69,21 +69,21 @@ export function HeroPreview() {
             <span key={i.id} className="h-5 rounded-[2px] bg-primary/15" style={{ flex: i.pages.length }} />
           ))}
         </div>
-        <p className="num mt-2 text-[10.5px] text-muted-foreground">{invs.length} invoices detected across {batch.files[0].pageCount} pages</p>
+        <p className="num mt-2 text-[10.5px] text-muted-foreground">{invs.length} invoices detected across {batch.files[0]!.pageCount} pages</p>
       </div>
     </div>
   );
 }
 
 export function ReviewShowcase() {
-  const inv = invs[3]; // has an invalid GSTIN in demo data
+  const inv = invs[3]!; // has an invalid GSTIN in demo data
   return (
     <div className="grid overflow-hidden rounded-lg border border-border bg-surface shadow-sheet md:grid-cols-[1.1fr_1fr]">
       <div className="border-b border-border bg-secondary p-6 md:border-b-0 md:border-r md:p-10">
         <div className="mx-auto max-w-[420px]">
-          <DocumentPage invoice={inv} page={inv.pages[0]} highlight="gstin" />
+          <DocumentPage invoice={inv} page={inv.pages[0]!} highlight="gstin" />
           <p className="num mt-3 text-center text-[11px] text-muted-foreground">
-            Source · page {inv.pages.join("–")} of {batch.files[0].pageCount}
+            Source · page {inv.pages.join("–")} of {batch.files[0]!.pageCount}
           </p>
         </div>
       </div>
