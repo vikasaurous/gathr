@@ -19,7 +19,9 @@ import { Route as PrivacyRouteImport } from './routes/privacy'
 import { Route as ProductRouteImport } from './routes/product'
 import { Route as TermsRouteImport } from './routes/terms'
 import { Route as AppIndexRouteImport } from './routes/app.index'
+import { Route as AppInvoicesRouteImport } from './routes/app.invoices'
 import { Route as AppNewRouteImport } from './routes/app.new'
+import { Route as AppSettingsRouteImport } from './routes/app.settings'
 import { Route as AppBatchesIndexRouteImport } from './routes/app.batches.index'
 import { Route as AppBatchesIdRouteImport } from './routes/app.batches.$id'
 
@@ -73,9 +75,19 @@ const AppIndexRoute = AppIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AppRoute,
 } as any)
+const AppInvoicesRoute = AppInvoicesRouteImport.update({
+  id: '/invoices',
+  path: '/invoices',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppNewRoute = AppNewRouteImport.update({
   id: '/new',
   path: '/new',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSettingsRoute = AppSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
   getParentRoute: () => AppRoute,
 } as any)
 const AppBatchesIndexRoute = AppBatchesIndexRouteImport.update({
@@ -99,7 +111,9 @@ export interface FileRoutesByFullPath {
   '/privacy': typeof PrivacyRoute
   '/product': typeof ProductRoute
   '/terms': typeof TermsRoute
+  '/app/invoices': typeof AppInvoicesRoute
   '/app/new': typeof AppNewRoute
+  '/app/settings': typeof AppSettingsRoute
   '/app/': typeof AppIndexRoute
   '/app/batches/$id': typeof AppBatchesIdRoute
   '/app/batches/': typeof AppBatchesIndexRoute
@@ -113,7 +127,9 @@ export interface FileRoutesByTo {
   '/privacy': typeof PrivacyRoute
   '/product': typeof ProductRoute
   '/terms': typeof TermsRoute
+  '/app/invoices': typeof AppInvoicesRoute
   '/app/new': typeof AppNewRoute
+  '/app/settings': typeof AppSettingsRoute
   '/app': typeof AppIndexRoute
   '/app/batches/$id': typeof AppBatchesIdRoute
   '/app/batches': typeof AppBatchesIndexRoute
@@ -129,7 +145,9 @@ export interface FileRoutesById {
   '/privacy': typeof PrivacyRoute
   '/product': typeof ProductRoute
   '/terms': typeof TermsRoute
+  '/app/invoices': typeof AppInvoicesRoute
   '/app/new': typeof AppNewRoute
+  '/app/settings': typeof AppSettingsRoute
   '/app/': typeof AppIndexRoute
   '/app/batches/$id': typeof AppBatchesIdRoute
   '/app/batches/': typeof AppBatchesIndexRoute
@@ -146,7 +164,9 @@ export interface FileRouteTypes {
     | '/privacy'
     | '/product'
     | '/terms'
+    | '/app/invoices'
     | '/app/new'
+    | '/app/settings'
     | '/app/'
     | '/app/batches/$id'
     | '/app/batches/'
@@ -160,7 +180,9 @@ export interface FileRouteTypes {
     | '/privacy'
     | '/product'
     | '/terms'
+    | '/app/invoices'
     | '/app/new'
+    | '/app/settings'
     | '/app'
     | '/app/batches/$id'
     | '/app/batches'
@@ -175,7 +197,9 @@ export interface FileRouteTypes {
     | '/privacy'
     | '/product'
     | '/terms'
+    | '/app/invoices'
     | '/app/new'
+    | '/app/settings'
     | '/app/'
     | '/app/batches/$id'
     | '/app/batches/'
@@ -265,11 +289,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppIndexRouteImport
       parentRoute: typeof AppRoute
     }
+    '/app/invoices': {
+      id: '/app/invoices'
+      path: '/invoices'
+      fullPath: '/app/invoices'
+      preLoaderRoute: typeof AppInvoicesRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/app/new': {
       id: '/app/new'
       path: '/new'
       fullPath: '/app/new'
       preLoaderRoute: typeof AppNewRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/settings': {
+      id: '/app/settings'
+      path: '/settings'
+      fullPath: '/app/settings'
+      preLoaderRoute: typeof AppSettingsRouteImport
       parentRoute: typeof AppRoute
     }
     '/app/batches/': {
@@ -290,14 +328,18 @@ declare module '@tanstack/react-router' {
 }
 
 interface AppRouteChildren {
+  AppInvoicesRoute: typeof AppInvoicesRoute
   AppNewRoute: typeof AppNewRoute
+  AppSettingsRoute: typeof AppSettingsRoute
   AppIndexRoute: typeof AppIndexRoute
   AppBatchesIdRoute: typeof AppBatchesIdRoute
   AppBatchesIndexRoute: typeof AppBatchesIndexRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
+  AppInvoicesRoute: AppInvoicesRoute,
   AppNewRoute: AppNewRoute,
+  AppSettingsRoute: AppSettingsRoute,
   AppIndexRoute: AppIndexRoute,
   AppBatchesIdRoute: AppBatchesIdRoute,
   AppBatchesIndexRoute: AppBatchesIndexRoute,
