@@ -13,6 +13,7 @@ import { useEffect, type ReactNode } from "react";
 import { Toaster } from "@/components/ui/sonner";
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
+import type { Session } from "../lib/auth/server";
 
 function NotFoundComponent() {
   return (
@@ -74,7 +75,7 @@ function ErrorComponent({ error, reset }: ErrorComponentProps) {
   );
 }
 
-export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
+export const Route = createRootRouteWithContext<{ queryClient: QueryClient; session?: Session }>()({
   head: () => ({
     // Replace these placeholders with the app's name and description when first building the app.
     // Each content route, / included, must still set its own head(). Never add og:image or
@@ -83,9 +84,17 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
       { title: "gathr — Bring every invoice together" },
-      { name: "description", content: "Invoice intake and document processing workspace for accountants and small businesses." },
+      {
+        name: "description",
+        content:
+          "Invoice intake and document processing workspace for accountants and small businesses.",
+      },
       { property: "og:title", content: "gathr — Bring every invoice together" },
-      { property: "og:description", content: "Invoice intake and document processing workspace for accountants and small businesses." },
+      {
+        property: "og:description",
+        content:
+          "Invoice intake and document processing workspace for accountants and small businesses.",
+      },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
     ],
@@ -100,7 +109,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         rel: "stylesheet",
         href: appCss,
       },
-      { rel: "icon", href: "/favicon.ico", type: "image/x-icon" },
+      { rel: "icon", href: "/favicon.svg", type: "image/svg+xml" },
     ],
   }),
   shellComponent: RootShell,

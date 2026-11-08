@@ -31,10 +31,10 @@ export function SiteHeader() {
         </nav>
         <div className="hidden items-center gap-2 md:flex">
           <Button variant="ghost" size="sm" asChild>
-            <Link to="/app">Sign in</Link>
+            <Link to="/login">Sign in</Link>
           </Button>
           <Button variant="ink" size="sm" asChild>
-            <Link to="/app/new">Get started</Link>
+            <Link to="/register">Get started</Link>
           </Button>
         </div>
         <button className="md:hidden" onClick={() => setOpen(!open)} aria-label="Menu">
@@ -50,10 +50,10 @@ export function SiteHeader() {
           ))}
           <div className="mt-4 flex gap-2">
             <Button variant="outline" className="flex-1" asChild>
-              <Link to="/app">Sign in</Link>
+              <Link to="/login">Sign in</Link>
             </Button>
             <Button variant="ink" className="flex-1" asChild>
-              <Link to="/app/new">Get started</Link>
+              <Link to="/register">Get started</Link>
             </Button>
           </div>
         </div>

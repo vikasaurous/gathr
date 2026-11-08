@@ -14,14 +14,18 @@ import { Route as AppRouteImport } from './routes/app'
 import { Route as ContactRouteImport } from './routes/contact'
 import { Route as FeaturesRouteImport } from './routes/features'
 import { Route as HowItWorksRouteImport } from './routes/how-it-works'
+import { Route as LoginRouteImport } from './routes/login'
 import { Route as PricingRouteImport } from './routes/pricing'
 import { Route as PrivacyRouteImport } from './routes/privacy'
 import { Route as ProductRouteImport } from './routes/product'
+import { Route as RegisterRouteImport } from './routes/register'
 import { Route as TermsRouteImport } from './routes/terms'
+import { Route as VerifyEmailRouteImport } from './routes/verify-email'
 import { Route as AppIndexRouteImport } from './routes/app.index'
 import { Route as AppInvoicesRouteImport } from './routes/app.invoices'
 import { Route as AppNewRouteImport } from './routes/app.new'
 import { Route as AppSettingsRouteImport } from './routes/app.settings'
+import { Route as ApiAuthSplatRouteImport } from './routes/api.auth.$'
 import { Route as AppBatchesIndexRouteImport } from './routes/app.batches.index'
 import { Route as AppBatchesIdRouteImport } from './routes/app.batches.$id'
 
@@ -50,6 +54,11 @@ const HowItWorksRoute = HowItWorksRouteImport.update({
   path: '/how-it-works',
   getParentRoute: () => rootRouteImport,
 } as any)
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const PricingRoute = PricingRouteImport.update({
   id: '/pricing',
   path: '/pricing',
@@ -65,9 +74,19 @@ const ProductRoute = ProductRouteImport.update({
   path: '/product',
   getParentRoute: () => rootRouteImport,
 } as any)
+const RegisterRoute = RegisterRouteImport.update({
+  id: '/register',
+  path: '/register',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const TermsRoute = TermsRouteImport.update({
   id: '/terms',
   path: '/terms',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const VerifyEmailRoute = VerifyEmailRouteImport.update({
+  id: '/verify-email',
+  path: '/verify-email',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AppIndexRoute = AppIndexRouteImport.update({
@@ -90,6 +109,11 @@ const AppSettingsRoute = AppSettingsRouteImport.update({
   path: '/settings',
   getParentRoute: () => AppRoute,
 } as any)
+const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
+  id: '/api/auth/$',
+  path: '/api/auth/$',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AppBatchesIndexRoute = AppBatchesIndexRouteImport.update({
   id: '/batches/',
   path: '/batches/',
@@ -107,14 +131,18 @@ export interface FileRoutesByFullPath {
   '/contact': typeof ContactRoute
   '/features': typeof FeaturesRoute
   '/how-it-works': typeof HowItWorksRoute
+  '/login': typeof LoginRoute
   '/pricing': typeof PricingRoute
   '/privacy': typeof PrivacyRoute
   '/product': typeof ProductRoute
+  '/register': typeof RegisterRoute
   '/terms': typeof TermsRoute
+  '/verify-email': typeof VerifyEmailRoute
   '/app/invoices': typeof AppInvoicesRoute
   '/app/new': typeof AppNewRoute
   '/app/settings': typeof AppSettingsRoute
   '/app/': typeof AppIndexRoute
+  '/api/auth/$': typeof ApiAuthSplatRoute
   '/app/batches/$id': typeof AppBatchesIdRoute
   '/app/batches/': typeof AppBatchesIndexRoute
 }
@@ -123,14 +151,18 @@ export interface FileRoutesByTo {
   '/contact': typeof ContactRoute
   '/features': typeof FeaturesRoute
   '/how-it-works': typeof HowItWorksRoute
+  '/login': typeof LoginRoute
   '/pricing': typeof PricingRoute
   '/privacy': typeof PrivacyRoute
   '/product': typeof ProductRoute
+  '/register': typeof RegisterRoute
   '/terms': typeof TermsRoute
+  '/verify-email': typeof VerifyEmailRoute
   '/app/invoices': typeof AppInvoicesRoute
   '/app/new': typeof AppNewRoute
   '/app/settings': typeof AppSettingsRoute
   '/app': typeof AppIndexRoute
+  '/api/auth/$': typeof ApiAuthSplatRoute
   '/app/batches/$id': typeof AppBatchesIdRoute
   '/app/batches': typeof AppBatchesIndexRoute
 }
@@ -141,14 +173,18 @@ export interface FileRoutesById {
   '/contact': typeof ContactRoute
   '/features': typeof FeaturesRoute
   '/how-it-works': typeof HowItWorksRoute
+  '/login': typeof LoginRoute
   '/pricing': typeof PricingRoute
   '/privacy': typeof PrivacyRoute
   '/product': typeof ProductRoute
+  '/register': typeof RegisterRoute
   '/terms': typeof TermsRoute
+  '/verify-email': typeof VerifyEmailRoute
   '/app/invoices': typeof AppInvoicesRoute
   '/app/new': typeof AppNewRoute
   '/app/settings': typeof AppSettingsRoute
   '/app/': typeof AppIndexRoute
+  '/api/auth/$': typeof ApiAuthSplatRoute
   '/app/batches/$id': typeof AppBatchesIdRoute
   '/app/batches/': typeof AppBatchesIndexRoute
 }
@@ -160,14 +196,18 @@ export interface FileRouteTypes {
     | '/contact'
     | '/features'
     | '/how-it-works'
+    | '/login'
     | '/pricing'
     | '/privacy'
     | '/product'
+    | '/register'
     | '/terms'
+    | '/verify-email'
     | '/app/invoices'
     | '/app/new'
     | '/app/settings'
     | '/app/'
+    | '/api/auth/$'
     | '/app/batches/$id'
     | '/app/batches/'
   fileRoutesByTo: FileRoutesByTo
@@ -176,14 +216,18 @@ export interface FileRouteTypes {
     | '/contact'
     | '/features'
     | '/how-it-works'
+    | '/login'
     | '/pricing'
     | '/privacy'
     | '/product'
+    | '/register'
     | '/terms'
+    | '/verify-email'
     | '/app/invoices'
     | '/app/new'
     | '/app/settings'
     | '/app'
+    | '/api/auth/$'
     | '/app/batches/$id'
     | '/app/batches'
   id:
@@ -193,14 +237,18 @@ export interface FileRouteTypes {
     | '/contact'
     | '/features'
     | '/how-it-works'
+    | '/login'
     | '/pricing'
     | '/privacy'
     | '/product'
+    | '/register'
     | '/terms'
+    | '/verify-email'
     | '/app/invoices'
     | '/app/new'
     | '/app/settings'
     | '/app/'
+    | '/api/auth/$'
     | '/app/batches/$id'
     | '/app/batches/'
   fileRoutesById: FileRoutesById
@@ -211,10 +259,14 @@ export interface RootRouteChildren {
   ContactRoute: typeof ContactRoute
   FeaturesRoute: typeof FeaturesRoute
   HowItWorksRoute: typeof HowItWorksRoute
+  LoginRoute: typeof LoginRoute
   PricingRoute: typeof PricingRoute
   PrivacyRoute: typeof PrivacyRoute
   ProductRoute: typeof ProductRoute
+  RegisterRoute: typeof RegisterRoute
   TermsRoute: typeof TermsRoute
+  VerifyEmailRoute: typeof VerifyEmailRoute
+  ApiAuthSplatRoute: typeof ApiAuthSplatRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -254,6 +306,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof HowItWorksRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/pricing': {
       id: '/pricing'
       path: '/pricing'
@@ -275,11 +334,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ProductRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/register': {
+      id: '/register'
+      path: '/register'
+      fullPath: '/register'
+      preLoaderRoute: typeof RegisterRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/terms': {
       id: '/terms'
       path: '/terms'
       fullPath: '/terms'
       preLoaderRoute: typeof TermsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/verify-email': {
+      id: '/verify-email'
+      path: '/verify-email'
+      fullPath: '/verify-email'
+      preLoaderRoute: typeof VerifyEmailRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/app/': {
@@ -309,6 +382,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/app/settings'
       preLoaderRoute: typeof AppSettingsRouteImport
       parentRoute: typeof AppRoute
+    }
+    '/api/auth/$': {
+      id: '/api/auth/$'
+      path: '/api/auth/$'
+      fullPath: '/api/auth/$'
+      preLoaderRoute: typeof ApiAuthSplatRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/app/batches/': {
       id: '/app/batches/'
@@ -353,10 +433,14 @@ const rootRouteChildren: RootRouteChildren = {
   ContactRoute: ContactRoute,
   FeaturesRoute: FeaturesRoute,
   HowItWorksRoute: HowItWorksRoute,
+  LoginRoute: LoginRoute,
   PricingRoute: PricingRoute,
   PrivacyRoute: PrivacyRoute,
   ProductRoute: ProductRoute,
+  RegisterRoute: RegisterRoute,
   TermsRoute: TermsRoute,
+  VerifyEmailRoute: VerifyEmailRoute,
+  ApiAuthSplatRoute: ApiAuthSplatRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

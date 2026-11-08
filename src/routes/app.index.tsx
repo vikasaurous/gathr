@@ -5,6 +5,7 @@ import { PageHeader } from "@/components/gathr/common";
 import { BatchStatusPill, DemoBadge } from "@/components/gathr/status";
 import { formatDate } from "@/lib/gathr/format";
 import { useWorkspace } from "@/lib/gathr/store";
+import { useSession } from "@/lib/auth/client";
 
 export const Route = createFileRoute("/app/")({
   head: () => ({
@@ -20,6 +21,8 @@ export const Route = createFileRoute("/app/")({
 
 function Overview() {
   const ws = useWorkspace();
+  const { data: session } = useSession();
+  const firstName = session?.user?.name?.split(" ")[0] ?? "there";
   const inv = ws.invoices;
   const pending = inv.filter((i) => i.status === "needs_review");
   const verified = inv.filter((i) => i.status === "verified").length;
@@ -36,7 +39,7 @@ function Overview() {
     <div className="mx-auto max-w-[1180px] px-5 py-8 md:px-10 md:py-12">
       <PageHeader
         eyebrow="Saturday, 7 November"
-        title={<>Good morning, <em>Alex.</em></>}
+        title={<>Good morning, <em>{firstName}.</em></>}
         actions={
           <Button variant="ink" asChild>
             <Link to="/app/new">

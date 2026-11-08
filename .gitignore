@@ -16,6 +16,9 @@ dist-ssr
 .nitro
 *.local
 
+# Neon CLI link
+.neon
+
 # Wrangler / Cloudflare
 .wrangler/
 .dev.vars

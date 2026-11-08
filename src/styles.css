@@ -132,3 +132,61 @@
 
 @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 @utility animate-rise { animation: rise 0.7s cubic-bezier(.2,.7,.2,1) both; }
+
+/* ── Authentication form utilities ───────────────────────── */
+@utility auth-input {
+  display: block;
+  width: 100%;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background-color: var(--color-surface);
+  padding: 0.5625rem 0.75rem;
+  font-size: 0.875rem;
+  color: var(--color-foreground);
+  outline: none;
+  transition: border-color 150ms, box-shadow 150ms;
+  font-family: var(--font-sans);
+  &::placeholder { color: var(--color-muted-foreground); opacity: 0.6; }
+  &:focus {
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 3px oklch(0.448 0.034 168.2 / 15%);
+  }
+  &:disabled { opacity: 0.5; cursor: not-allowed; }
+}
+@utility auth-submit {
+  display: block;
+  width: 100%;
+  border-radius: var(--radius-md);
+  background-color: var(--color-ink);
+  color: var(--color-ink-foreground);
+  padding: 0.625rem 1rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  transition: background-color 150ms, opacity 150ms;
+  font-family: var(--font-sans);
+  &:hover:not(:disabled) { background-color: oklch(0.30 0.004 128.6); }
+  &:disabled { opacity: 0.45; cursor: not-allowed; }
+}
+@utility google-btn {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  gap: 0.625rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background-color: var(--color-surface);
+  color: var(--color-foreground);
+  padding: 0.5625rem 1rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  transition: background-color 150ms, border-color 150ms, opacity 150ms;
+  font-family: var(--font-sans);
+  &:hover:not(:disabled) { background-color: var(--color-secondary); border-color: oklch(0.569 0.012 112.6 / 50%); }
+  &:focus-visible { outline: none; border-color: var(--color-primary); box-shadow: 0 0 0 3px oklch(0.448 0.034 168.2 / 15%); }
+  &:disabled { opacity: 0.45; cursor: not-allowed; }
+}

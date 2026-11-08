@@ -1,10 +1,31 @@
-import { createFileRoute, Link, Outlet } from "@tanstack/react-router";
-import { ChevronsUpDown, FilePlus2, FileText, HelpCircle, Layers, LayoutGrid, Settings } from "lucide-react";
+import { createFileRoute, Link, Outlet, redirect } from "@tanstack/react-router";
+import {
+  ChevronsUpDown,
+  FilePlus2,
+  FileText,
+  HelpCircle,
+  Layers,
+  LayoutGrid,
+  LogOut,
+  Settings,
+} from "lucide-react";
 import { Wordmark } from "@/components/gathr/brand";
 import { useWorkspace } from "@/lib/gathr/store";
 import { cn } from "@/lib/utils";
+import { useSession } from "@/lib/auth/client";
+import { getSessionFn } from "@/lib/auth/functions";
+import { SignOutDialog } from "@/components/gathr/sign-out-dialog";
 
 export const Route = createFileRoute("/app")({
+  beforeLoad: async () => {
+    // Server-side session check using TanStack Start server function.
+    // Executes on server in SSR and via RPC from browser with session cookies.
+    const session = await getSessionFn();
+    if (!session) {
+      throw redirect({ to: "/login" });
+    }
+    return { session };
+  },
   head: () => ({
     meta: [
       { title: "Workspace — gathr" },
@@ -29,6 +50,16 @@ const NAV = [
 
 function AppLayout() {
   const ws = useWorkspace();
+  const { session: serverSession } = Route.useRouteContext();
+  const { data: clientSession } = useSession();
+  const user = clientSession?.user ?? serverSession?.user;
+  const displayName = user?.name ?? user?.email ?? "Account";
+  const initials = displayName
+    .split(" ")
+    .map((w) => w[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
   const pending = ws.invoices.filter((i) => i.status === "needs_review").length;
   return (
     <div className="min-h-screen bg-background lg:grid lg:grid-cols-[232px_1fr]">
@@ -43,33 +74,63 @@ function AppLayout() {
               to={n.to}
               activeOptions={{ exact: "exact" in n }}
               className="group flex items-center gap-3 rounded-md px-2.5 py-2 text-[13.5px] text-muted-foreground transition-colors hover:bg-background hover:text-foreground"
-              activeProps={{ className: "bg-background text-foreground shadow-[inset_2px_0_0_var(--color-primary)]" }}
+              activeProps={{
+                className:
+                  "bg-background text-foreground shadow-[inset_2px_0_0_var(--color-primary)]",
+              }}
             >
               <n.icon className="size-4" strokeWidth={1.6} />
               <span className="flex-1">{n.label}</span>
-              {n.to === "/app/invoices" && pending > 0 && <span className="num text-[11px] text-warning">{pending}</span>}
+              {n.to === "/app/invoices" && pending > 0 && (
+                <span className="num text-[11px] text-warning">{pending}</span>
+              )}
             </Link>
           ))}
         </nav>
         <div className="space-y-1 border-t border-border p-3">
-          <a href="mailto:hello@gathr.example" className="flex items-center gap-3 rounded-md px-2.5 py-2 text-[13px] text-muted-foreground hover:bg-background hover:text-foreground">
+          <a
+            href="mailto:hello@gathr.example"
+            className="flex items-center gap-3 rounded-md px-2.5 py-2 text-[13px] text-muted-foreground hover:bg-background hover:text-foreground"
+          >
             <HelpCircle className="size-4" strokeWidth={1.6} /> Help
           </a>
           <div className="flex items-center gap-2.5 rounded-md border border-border bg-background px-2.5 py-2">
-            <span className="grid size-7 place-items-center rounded-sm bg-primary font-serif text-[15px] text-primary-foreground">M</span>
+            <span className="grid size-7 place-items-center rounded-sm bg-primary font-serif text-[15px] text-primary-foreground">
+              {initials}
+            </span>
             <div className="min-w-0 flex-1">
               <p className="truncate text-[12.5px]">{ws.workspaceName}</p>
-              <p className="truncate text-[11px] text-muted-foreground">Alex Mehta · Pro</p>
+              <p className="truncate text-[11px] text-muted-foreground">{displayName}</p>
             </div>
             <ChevronsUpDown className="size-3.5 text-muted-foreground" />
           </div>
+          <SignOutDialog
+            trigger={
+              <button
+                type="button"
+                className="flex w-full items-center gap-3 rounded-md px-2.5 py-2 text-[13px] text-muted-foreground transition-colors hover:bg-background hover:text-foreground"
+              >
+                <LogOut className="size-4" strokeWidth={1.6} /> Sign out
+              </button>
+            }
+          />
         </div>
       </aside>
 
       {/* Mobile top + bottom navigation */}
       <header className="sticky top-0 z-30 flex h-14 items-center justify-between border-b border-border bg-background/95 px-4 backdrop-blur-sm lg:hidden">
         <Wordmark to="/app" />
-        <span className="grid size-8 place-items-center rounded-sm bg-primary font-serif text-primary-foreground">M</span>
+        <SignOutDialog
+          trigger={
+            <button
+              type="button"
+              className="grid size-8 place-items-center rounded-sm bg-primary font-serif text-primary-foreground transition-opacity hover:opacity-90"
+              aria-label="Account options / Sign out"
+            >
+              {initials}
+            </button>
+          }
+        />
       </header>
       <nav className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t border-border bg-background/95 backdrop-blur-sm lg:hidden">
         {NAV.map((n) => (
