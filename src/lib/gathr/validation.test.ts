@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { generateInvoice } from "./demo-data";
-import { isValidGstin, validateInvoice } from "./validation";
+import { approvalGate, isValidGstin, validateInvoice } from "./validation";
 
 const base = () =>
   generateInvoice("T-1", { batchId: "T", sourceFile: "t.pdf", startPage: 1, seed: 5, baseDate: "2026-11-01T00:00:00Z" });
@@ -28,6 +28,27 @@ describe("invoice validation", () => {
     inv.fields.total.value = "1.00";
     validateInvoice(inv);
     expect(inv.fields.total.value).toBe("1.00");
+  });
+
+  it("blocks approval while a validation error remains", () => {
+    const inv = base();
+    inv.fields.invoiceNumber.value = "";
+    expect(approvalGate(validateInvoice(inv)).canApprove).toBe(false);
+  });
+
+  it("allows approval once errors are corrected", () => {
+    const inv = base();
+    inv.fields.invoiceNumber.value = "";
+    inv.fields.invoiceNumber.value = "INV-1";
+    expect(approvalGate(validateInvoice(inv)).canApprove).toBe(true);
+  });
+
+  it("requires confirmation when only warnings remain", () => {
+    const a = base();
+    const b = { ...base(), id: "T-2" };
+    const gate = approvalGate(validateInvoice(b, [a, b]));
+    expect(gate.canApprove).toBe(true);
+    expect(gate.needsConfirmation).toBe(true);
   });
 
   it("flags duplicates with the same invoice number and GSTIN", () => {

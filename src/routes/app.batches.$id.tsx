@@ -13,8 +13,8 @@ import { BatchStatusPill, DemoBadge, InvoiceStatusPill } from "@/components/gath
 import { buildFileName } from "@/lib/gathr/export";
 import { formatMoney, pageRange } from "@/lib/gathr/format";
 import { actions, useWorkspace } from "@/lib/gathr/store";
-import type { FieldKey, Invoice } from "@/lib/gathr/types";
-import { validateInvoice } from "@/lib/gathr/validation";
+import { FIELD_META, type FieldKey, type Invoice } from "@/lib/gathr/types";
+import { approvalGate, validateInvoice } from "@/lib/gathr/validation";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/app/batches/$id")({
@@ -49,6 +49,7 @@ function Review() {
   const [tab, setTab] = useState<"doc" | "fields">("fields");
   const [renaming, setRenaming] = useState(false);
   const [newName, setNewName] = useState("");
+  const [confirmWarnings, setConfirmWarnings] = useState(false);
 
   useEffect(() => {
     if (current) {
@@ -65,7 +66,18 @@ function Review() {
   const live: Invoice = { ...current, fields: Object.fromEntries(Object.entries(current.fields).map(([k, v]) => [k, { ...v, value: draft[k as FieldKey] }])) as Invoice["fields"] };
   const issues = validateInvoice(live, ws.invoices);
   const dirty = (Object.keys(draft) as FieldKey[]).some((k) => draft[k] !== current.fields[k].value);
-  const errors = issues.filter((i) => i.severity === "error").length;
+  const gate = approvalGate(issues);
+  const errors = gate.blocking.length;
+  const fieldLabel = (k?: FieldKey) => (k ? FIELD_META.find((m) => m.key === k)?.label : undefined);
+  const focusField = (k?: FieldKey) => {
+    if (!k) return;
+    setTab("fields");
+    setTimeout(() => {
+      const el = document.getElementById(`f-${k}`);
+      el?.scrollIntoView({ block: "center", behavior: "smooth" });
+      (el as HTMLInputElement | null)?.focus({ preventScroll: true });
+    }, 0);
+  };
   const file = batch.files.find((f) => f.name === current.sourceFile) ?? batch.files[0]!;
   const fileInvoices = invoices.filter((i) => i.sourceFile === file.name);
   const pageOwner = fileInvoices.find((i) => i.pages.includes(page));
@@ -77,6 +89,12 @@ function Review() {
   };
   const save = () => { actions.saveFields(current.id, draft); toast.success("Corrections saved"); };
   const approve = () => {
+    // Guard: never approve while blocking errors remain, regardless of how this is called.
+    if (!approvalGate(validateInvoice(live, ws.invoices)).canApprove) {
+      toast.error("Correct the blocking errors before approving.");
+      return;
+    }
+    setConfirmWarnings(false);
     actions.saveFields(current.id, draft);
     actions.setStatus(current.id, "verified");
     toast.success(`${current.fileName} approved`);
@@ -176,10 +194,36 @@ function Review() {
             {issues.length > 0 ? (
               <div className="mb-6 rounded-md border border-border bg-surface">
                 <p className="border-b border-border px-3 py-2 text-[12px]">{issues.length} item{issues.length > 1 ? "s" : ""} to check <span className="text-muted-foreground">· values are never changed automatically</span></p>
+                {errors > 0 && (
+                  <p className="border-b border-border bg-destructive/5 px-3 py-2 text-[12px] text-destructive">
+                    {errors} blocking error{errors > 1 ? "s" : ""} must be corrected before this invoice can be approved.
+                  </p>
+                )}
                 <ul className="px-3 py-2 text-[12.5px]">
-                  {issues.map((i, n) => (
-                    <li key={n} className="flex gap-2 py-1"><span className={cn("mt-1.5 size-1.5 shrink-0 rounded-full", i.severity === "error" ? "bg-destructive" : "bg-warning")} />{i.message}</li>
-                  ))}
+                  {issues.map((i, n) => {
+                    const label = fieldLabel(i.field);
+                    const body = (
+                      <>
+                        <span className={cn("mt-1.5 size-1.5 shrink-0 rounded-full", i.severity === "error" ? "bg-destructive" : "bg-warning")} />
+                        <span>
+                          {label && <span className="font-medium">{label}: </span>}
+                          {i.message}
+                          <span className="num ml-1.5 text-[10.5px] uppercase tracking-wider text-muted-foreground">{i.severity === "error" ? "blocking" : "warning"}</span>
+                        </span>
+                      </>
+                    );
+                    return (
+                      <li key={n}>
+                        {i.field ? (
+                          <button type="button" onClick={() => focusField(i.field)} className="flex w-full gap-2 rounded-sm py-1 text-left hover:bg-secondary" aria-label={`Go to ${label}: ${i.message}`}>
+                            {body}
+                          </button>
+                        ) : (
+                          <div className="flex gap-2 py-1">{body}</div>
+                        )}
+                      </li>
+                    );
+                  })}
                 </ul>
               </div>
             ) : (
@@ -197,8 +241,20 @@ function Review() {
           </div>
           <div className="sticky bottom-[57px] border-t border-border bg-background px-5 py-3 lg:bottom-0">
             <div className="flex flex-wrap gap-2">
-              <Button variant="default" className="flex-1" onClick={approve} disabled={current.status === "verified" && !dirty}>
-                <Check /> {current.status === "verified" ? "Approved" : errors ? `Approve with ${errors} issue${errors > 1 ? "s" : ""}` : "Approve invoice"}
+              <Button
+                variant="default"
+                className="flex-1"
+                onClick={() => (gate.needsConfirmation ? setConfirmWarnings(true) : approve())}
+                disabled={errors > 0 || (current.status === "verified" && !dirty)}
+              >
+                <Check />{" "}
+                {errors > 0
+                  ? `Fix ${errors} error${errors > 1 ? "s" : ""} to approve`
+                  : current.status === "verified" && !dirty
+                    ? "Approved"
+                    : gate.warnings.length
+                      ? `Review ${gate.warnings.length} warning${gate.warnings.length > 1 ? "s" : ""} & approve`
+                      : "Approve invoice"}
               </Button>
               <Button variant="outline" onClick={save} disabled={!dirty}><Save /> Save</Button>
             </div>
@@ -218,6 +274,22 @@ function Review() {
           </div>
         </section>
       </div>
+
+      <Dialog open={confirmWarnings} onOpenChange={setConfirmWarnings}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle className="font-serif text-2xl font-normal">Approve with warnings?</DialogTitle></DialogHeader>
+          <p className="text-[13px] text-muted-foreground">Check these before approving. Values will not be changed.</p>
+          <ul className="space-y-1.5 rounded-md border border-border bg-surface px-3 py-2 text-[12.5px]">
+            {gate.warnings.map((w, n) => (
+              <li key={n} className="flex gap-2"><span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-warning" />{fieldLabel(w.field) ? `${fieldLabel(w.field)}: ` : ""}{w.message}</li>
+            ))}
+          </ul>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setConfirmWarnings(false)}>Keep reviewing</Button>
+            <Button variant="default" onClick={approve}><Check /> Approve anyway</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={renaming} onOpenChange={setRenaming}>
         <DialogContent className="max-w-md">
