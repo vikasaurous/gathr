@@ -13,8 +13,8 @@ import { BatchStatusPill, DemoBadge, InvoiceStatusPill } from "@/components/gath
 import { buildFileName } from "@/lib/gathr/export";
 import { formatMoney, pageRange } from "@/lib/gathr/format";
 import { actions, useWorkspace } from "@/lib/gathr/store";
-import type { FieldKey, Invoice } from "@/lib/gathr/types";
-import { validateInvoice } from "@/lib/gathr/validation";
+import { FIELD_META, type FieldKey, type Invoice } from "@/lib/gathr/types";
+import { approvalGate, validateInvoice } from "@/lib/gathr/validation";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/app/batches/$id")({
@@ -49,6 +49,7 @@ function Review() {
   const [tab, setTab] = useState<"doc" | "fields">("fields");
   const [renaming, setRenaming] = useState(false);
   const [newName, setNewName] = useState("");
+  const [confirmWarnings, setConfirmWarnings] = useState(false);
 
   useEffect(() => {
     if (current) {
@@ -65,7 +66,18 @@ function Review() {
   const live: Invoice = { ...current, fields: Object.fromEntries(Object.entries(current.fields).map(([k, v]) => [k, { ...v, value: draft[k as FieldKey] }])) as Invoice["fields"] };
   const issues = validateInvoice(live, ws.invoices);
   const dirty = (Object.keys(draft) as FieldKey[]).some((k) => draft[k] !== current.fields[k].value);
-  const errors = issues.filter((i) => i.severity === "error").length;
+  const gate = approvalGate(issues);
+  const errors = gate.blocking.length;
+  const fieldLabel = (k?: FieldKey) => (k ? FIELD_META.find((m) => m.key === k)?.label : undefined);
+  const focusField = (k?: FieldKey) => {
+    if (!k) return;
+    setTab("fields");
+    setTimeout(() => {
+      const el = document.getElementById(`f-${k}`);
+      el?.scrollIntoView({ block: "center", behavior: "smooth" });
+      (el as HTMLInputElement | null)?.focus({ preventScroll: true });
+    }, 0);
+  };
   const file = batch.files.find((f) => f.name === current.sourceFile) ?? batch.files[0]!;
   const fileInvoices = invoices.filter((i) => i.sourceFile === file.name);
   const pageOwner = fileInvoices.find((i) => i.pages.includes(page));
@@ -77,6 +89,12 @@ function Review() {
   };
   const save = () => { actions.saveFields(current.id, draft); toast.success("Corrections saved"); };
   const approve = () => {
+    // Guard: never approve while blocking errors remain, regardless of how this is called.
+    if (!approvalGate(validateInvoice(live, ws.invoices)).canApprove) {
+      toast.error("Correct the blocking errors before approving.");
+      return;
+    }
+    setConfirmWarnings(false);
     actions.saveFields(current.id, draft);
     actions.setStatus(current.id, "verified");
     toast.success(`${current.fileName} approved`);
