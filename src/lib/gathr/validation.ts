@@ -65,6 +65,13 @@ export function validateInvoice(inv: Invoice, all: Invoice[] = []): ValidationIs
   return issues;
 }
 
+/** Approval gate: errors block approval; warnings need explicit confirmation. */
+export function approvalGate(issues: ValidationIssue[]) {
+  const blocking = issues.filter((i) => i.severity === "error");
+  const warnings = issues.filter((i) => i.severity === "warning");
+  return { blocking, warnings, canApprove: blocking.length === 0, needsConfirmation: blocking.length === 0 && warnings.length > 0 };
+}
+
 export function findDuplicate(inv: Invoice, all: Invoice[]): Invoice | undefined {
   const num = inv.fields.invoiceNumber.value.trim().toUpperCase();
   const g = inv.fields.gstin.value.trim().toUpperCase();
