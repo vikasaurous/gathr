@@ -194,10 +194,36 @@ function Review() {
             {issues.length > 0 ? (
               <div className="mb-6 rounded-md border border-border bg-surface">
                 <p className="border-b border-border px-3 py-2 text-[12px]">{issues.length} item{issues.length > 1 ? "s" : ""} to check <span className="text-muted-foreground">· values are never changed automatically</span></p>
+                {errors > 0 && (
+                  <p className="border-b border-border bg-destructive/5 px-3 py-2 text-[12px] text-destructive">
+                    {errors} blocking error{errors > 1 ? "s" : ""} must be corrected before this invoice can be approved.
+                  </p>
+                )}
                 <ul className="px-3 py-2 text-[12.5px]">
-                  {issues.map((i, n) => (
-                    <li key={n} className="flex gap-2 py-1"><span className={cn("mt-1.5 size-1.5 shrink-0 rounded-full", i.severity === "error" ? "bg-destructive" : "bg-warning")} />{i.message}</li>
-                  ))}
+                  {issues.map((i, n) => {
+                    const label = fieldLabel(i.field);
+                    const body = (
+                      <>
+                        <span className={cn("mt-1.5 size-1.5 shrink-0 rounded-full", i.severity === "error" ? "bg-destructive" : "bg-warning")} />
+                        <span>
+                          {label && <span className="font-medium">{label}: </span>}
+                          {i.message}
+                          <span className="num ml-1.5 text-[10.5px] uppercase tracking-wider text-muted-foreground">{i.severity === "error" ? "blocking" : "warning"}</span>
+                        </span>
+                      </>
+                    );
+                    return (
+                      <li key={n}>
+                        {i.field ? (
+                          <button type="button" onClick={() => focusField(i.field)} className="flex w-full gap-2 rounded-sm py-1 text-left hover:bg-secondary" aria-label={`Go to ${label}: ${i.message}`}>
+                            {body}
+                          </button>
+                        ) : (
+                          <div className="flex gap-2 py-1">{body}</div>
+                        )}
+                      </li>
+                    );
+                  })}
                 </ul>
               </div>
             ) : (
@@ -215,8 +241,20 @@ function Review() {
           </div>
           <div className="sticky bottom-[57px] border-t border-border bg-background px-5 py-3 lg:bottom-0">
             <div className="flex flex-wrap gap-2">
-              <Button variant="default" className="flex-1" onClick={approve} disabled={current.status === "verified" && !dirty}>
-                <Check /> {current.status === "verified" ? "Approved" : errors ? `Approve with ${errors} issue${errors > 1 ? "s" : ""}` : "Approve invoice"}
+              <Button
+                variant="default"
+                className="flex-1"
+                onClick={() => (gate.needsConfirmation ? setConfirmWarnings(true) : approve())}
+                disabled={errors > 0 || (current.status === "verified" && !dirty)}
+              >
+                <Check />{" "}
+                {errors > 0
+                  ? `Fix ${errors} error${errors > 1 ? "s" : ""} to approve`
+                  : current.status === "verified" && !dirty
+                    ? "Approved"
+                    : gate.warnings.length
+                      ? `Review ${gate.warnings.length} warning${gate.warnings.length > 1 ? "s" : ""} & approve`
+                      : "Approve invoice"}
               </Button>
               <Button variant="outline" onClick={save} disabled={!dirty}><Save /> Save</Button>
             </div>
@@ -236,6 +274,22 @@ function Review() {
           </div>
         </section>
       </div>
+
+      <Dialog open={confirmWarnings} onOpenChange={setConfirmWarnings}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle className="font-serif text-2xl font-normal">Approve with warnings?</DialogTitle></DialogHeader>
+          <p className="text-[13px] text-muted-foreground">Check these before approving. Values will not be changed.</p>
+          <ul className="space-y-1.5 rounded-md border border-border bg-surface px-3 py-2 text-[12.5px]">
+            {gate.warnings.map((w, n) => (
+              <li key={n} className="flex gap-2"><span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-warning" />{fieldLabel(w.field) ? `${fieldLabel(w.field)}: ` : ""}{w.message}</li>
+            ))}
+          </ul>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setConfirmWarnings(false)}>Keep reviewing</Button>
+            <Button variant="default" onClick={approve}><Check /> Approve anyway</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={renaming} onOpenChange={setRenaming}>
         <DialogContent className="max-w-md">
