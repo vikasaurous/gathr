@@ -1,47 +1,107 @@
-import { Download } from "lucide-react";
+import { Download, Loader2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { buildFileName, downloadText, invoicesToCsv } from "@/lib/gathr/export";
+import {
+  buildSafeFileName,
+  downloadBlob,
+  downloadCsv,
+  downloadPdf,
+  downloadXlsx,
+  EXPORT_FORMATS,
+  type ExportFormatKey,
+  filterExportInvoices,
+  invoicesToCsv,
+  invoicesToPdfReport,
+  invoicesToXlsx,
+  invoicesToZip,
+} from "@/lib/gathr/export";
 import { actions, useWorkspace } from "@/lib/gathr/store";
 import type { Invoice } from "@/lib/gathr/types";
 import { cn } from "@/lib/utils";
 
-const FORMATS = [
-  { key: "csv", label: "CSV", note: "Downloads now", works: true },
-  { key: "xlsx", label: "Excel workbook", note: "Simulated", works: false },
-  { key: "pdf", label: "Individual PDFs", note: "Simulated", works: false },
-  { key: "zip", label: "Combined ZIP", note: "Simulated", works: false },
-] as const;
-
-export function ExportDialog({ invoices, trigger, label }: { invoices: Invoice[]; trigger?: React.ReactNode; label: string }) {
+export function ExportDialog({
+  invoices,
+  trigger,
+  label,
+}: {
+  invoices: Invoice[];
+  trigger?: React.ReactNode;
+  label: string;
+}) {
   const ws = useWorkspace();
-  const [format, setFormat] = useState<(typeof FORMATS)[number]["key"]>("csv");
+  const [format, setFormat] = useState<ExportFormatKey>("csv");
   const [verifiedOnly, setVerifiedOnly] = useState(true);
   const [includeReview, setIncludeReview] = useState(false);
   const [excludeDup, setExcludeDup] = useState(true);
-  const selected = invoices.filter((i) => {
-    if (excludeDup && i.status === "duplicate") return false;
-    if (i.status === "verified") return true;
-    if (i.status === "needs_review") return includeReview;
-    return !verifiedOnly && i.status !== "duplicate" ? true : !excludeDup && i.status === "duplicate";
+  const [loading, setLoading] = useState(false);
+
+  const selected = filterExportInvoices(invoices, {
+    verifiedOnly,
+    includeReview,
+    excludeDup,
   });
-  const f = FORMATS.find((x) => x.key === format)!;
+  const f = EXPORT_FORMATS.find((x) => x.key === format)!;
   const sample = selected[0] ?? invoices[0];
 
-  function run() {
-    if (!selected.length) {
-      toast.error("No invoices match these options.");
+  async function run() {
+    if (loading || !selected.length) {
+      if (!selected.length) {
+        toast.error("No invoices match these options.");
+      }
       return;
     }
-    if (f.works) {
-      downloadText(`gathr_${label.replace(/\W+/g, "-").toLowerCase()}.csv`, invoicesToCsv(selected));
-      toast.success(`CSV with ${selected.length} demo records downloaded`);
-    } else {
-      toast.info(`${f.label} export is simulated in this prototype — no file was generated.`);
+    setLoading(true);
+    try {
+      const slugLabel =
+        label
+          .replace(/\W+/g, "-")
+          .toLowerCase()
+          .replace(/^-+|-+$/g, "") || "invoices";
+      const datePart = new Date().toISOString().slice(0, 10);
+      const baseName = `gathr_${slugLabel}_${datePart}`;
+
+      if (format === "csv") {
+        const csvContent = invoicesToCsv(selected);
+        downloadCsv(`${baseName}.csv`, csvContent);
+        toast.success(
+          `CSV with ${selected.length} record${selected.length === 1 ? "" : "s"} downloaded`,
+        );
+      } else if (format === "xlsx") {
+        const xlsxBytes = invoicesToXlsx(selected);
+        downloadXlsx(`${baseName}.xlsx`, xlsxBytes);
+        toast.success(
+          `Excel workbook with ${selected.length} record${selected.length === 1 ? "" : "s"} downloaded`,
+        );
+      } else if (format === "pdf") {
+        const pdfBytes = await invoicesToPdfReport(selected);
+        downloadPdf(`${baseName}.pdf`, pdfBytes);
+        toast.success(
+          `PDF report with ${selected.length} invoice${selected.length === 1 ? "" : "s"} downloaded`,
+        );
+      } else if (format === "zip") {
+        const zipBlob = await invoicesToZip(selected, ws.filenameTemplate);
+        downloadBlob(`${baseName}.zip`, zipBlob);
+        toast.success(
+          `ZIP archive with ${selected.length} PDF summary${selected.length === 1 ? "" : "ies"} and CSV downloaded`,
+        );
+      }
+    } catch (err) {
+      console.error("Export generation error:", err);
+      toast.error(
+        err instanceof Error ? `Export failed: ${err.message}` : "Export failed. Please try again.",
+      );
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -60,34 +120,83 @@ export function ExportDialog({ invoices, trigger, label }: { invoices: Invoice[]
           <p className="text-[13px] text-muted-foreground">{label}</p>
         </DialogHeader>
         <div className="grid grid-cols-2 gap-2">
-          {FORMATS.map((x) => (
-            <button key={x.key} onClick={() => setFormat(x.key)} className={cn("rounded-md border px-3 py-2.5 text-left transition-colors", format === x.key ? "border-foreground bg-secondary" : "border-border hover:bg-secondary")}>
-              <p className="text-[13.5px]">{x.label}</p>
-              <p className={cn("num text-[10.5px] uppercase tracking-wider", x.works ? "text-success" : "text-warning")}>{x.note}</p>
+          {EXPORT_FORMATS.map((x) => (
+            <button
+              key={x.key}
+              type="button"
+              disabled={loading}
+              onClick={() => setFormat(x.key)}
+              className={cn(
+                "rounded-md border px-3 py-2.5 text-left transition-colors",
+                format === x.key
+                  ? "border-foreground bg-secondary"
+                  : "border-border hover:bg-secondary",
+                loading && "cursor-not-allowed opacity-60",
+              )}
+            >
+              <p className="text-[13.5px] font-medium">{x.label}</p>
+              <p className="text-[11px] text-muted-foreground">{x.description}</p>
             </button>
           ))}
         </div>
         <div className="space-y-2.5 border-y border-border py-4 text-[13.5px]">
-          {(
-            [
-              ["Verified invoices only", verifiedOnly, setVerifiedOnly],
-              ["Include invoices requiring review", includeReview, setIncludeReview],
-              ["Exclude duplicates", excludeDup, setExcludeDup],
-            ] as const
-          ).map(([l, v, s]) => (
-            <label key={l} className="flex cursor-pointer items-center gap-3">
-              <Checkbox checked={v} onCheckedChange={(c) => s(!!c)} /> {l}
-            </label>
-          ))}
-          <p className="num pt-1 text-[11px] text-muted-foreground">All fields included · {selected.length} of {invoices.length} invoices selected</p>
+          <label className="flex cursor-pointer items-center gap-3">
+            <Checkbox
+              checked={verifiedOnly}
+              onCheckedChange={(c) => setVerifiedOnly(!!c)}
+              disabled={loading}
+            />{" "}
+            Verified invoices only
+          </label>
+          <label
+            className={cn(
+              "flex items-center gap-3",
+              !verifiedOnly ? "cursor-not-allowed opacity-60" : "cursor-pointer",
+            )}
+          >
+            <Checkbox
+              checked={verifiedOnly ? includeReview : true}
+              onCheckedChange={(c) => setIncludeReview(!!c)}
+              disabled={loading || !verifiedOnly}
+            />{" "}
+            Include invoices requiring review
+          </label>
+          <label className="flex cursor-pointer items-center gap-3">
+            <Checkbox
+              checked={excludeDup}
+              onCheckedChange={(c) => setExcludeDup(!!c)}
+              disabled={loading}
+            />{" "}
+            Exclude duplicates
+          </label>
+          <p className="num pt-1 text-[11px] text-muted-foreground">
+            All fields included · {selected.length} of {invoices.length} invoices selected
+          </p>
         </div>
         <div>
           <label className="text-[12.5px] text-muted-foreground">Filename template</label>
-          <Input value={ws.filenameTemplate} onChange={(e) => actions.setTemplate(e.target.value)} className="num mt-1.5 text-[12.5px]" />
-          {sample && <p className="num mt-2 truncate text-[12px] text-primary">→ {buildFileName(ws.filenameTemplate, sample)}</p>}
+          <Input
+            value={ws.filenameTemplate}
+            onChange={(e) => actions.setTemplate(e.target.value)}
+            disabled={loading}
+            className="num mt-1.5 text-[12.5px]"
+          />
+          {sample && (
+            <p className="num mt-2 truncate text-[12px] text-primary">
+              → {buildSafeFileName(ws.filenameTemplate, sample)}
+            </p>
+          )}
         </div>
-        <Button variant="ink" onClick={run} disabled={!selected.length}>
-          <Download /> {f.works ? `Download ${f.label}` : `Simulate ${f.label} export`}
+        <Button variant="ink" onClick={run} disabled={loading || !selected.length}>
+          {loading ? (
+            <>
+              <Loader2 className="size-4 animate-spin" /> Generating {f.label}...
+            </>
+          ) : (
+            <>
+              <Download /> Download {f.label}
+            </>
+          )}
         </Button>
       </DialogContent>
     </Dialog>

@@ -23,7 +23,9 @@ function rng(seed: number) {
 }
 
 export function field(value: string, confidence: number | null): InvoiceField {
-  return value ? { value, confidence, source: "extracted" } : { value: "", confidence: null, source: "missing" };
+  return value
+    ? { value, confidence, source: "extracted" }
+    : { value: "", confidence: null, source: "missing" };
 }
 
 export interface GenOptions {
@@ -32,16 +34,25 @@ export interface GenOptions {
   startPage: number;
   seed: number;
   baseDate: string;
-  flaw?: undefined | "missing_number" | "bad_gstin" | "total_mismatch" | "missing_date" | "low_conf" | null;
+  flaw?:
+    | undefined
+    | "missing_number"
+    | "bad_gstin"
+    | "total_mismatch"
+    | "missing_date"
+    | "low_conf"
+    | null;
   duplicateOf?: Invoice | undefined;
 }
 
 export function generateInvoice(id: string, o: GenOptions): Invoice {
   const r = rng(o.seed);
   const sup = o.duplicateOf
-    ? SUPPLIERS.find((s) => s.name === o.duplicateOf!.fields.supplier.value) ?? SUPPLIERS[0]!
+    ? (SUPPLIERS.find((s) => s.name === o.duplicateOf!.fields.supplier.value) ?? SUPPLIERS[0]!)
     : SUPPLIERS[Math.floor(r() * SUPPLIERS.length)]!;
-  const taxable = o.duplicateOf ? Number(o.duplicateOf.fields.taxableValue.value) : Math.round((2000 + r() * 180000) * 100) / 100;
+  const taxable = o.duplicateOf
+    ? Number(o.duplicateOf.fields.taxableValue.value)
+    : Math.round((2000 + r() * 180000) * 100) / 100;
   const rate = [0.05, 0.12, 0.18, 0.18, 0.28][Math.floor(r() * 5)]!;
   const tax = Math.round(taxable * rate * 100) / 100;
   const intra = sup.state === "intra";
@@ -61,7 +72,10 @@ export function generateInvoice(id: string, o: GenOptions): Invoice {
   const pageCount = r() > 0.7 ? 2 : 1;
   const fields: Record<FieldKey, InvoiceField> = {
     supplier: field(sup.name, c()),
-    gstin: field(o.flaw === "bad_gstin" ? sup.gstin.slice(0, 13) + "0" : sup.gstin, o.flaw === "bad_gstin" ? 0.58 : c()),
+    gstin: field(
+      o.flaw === "bad_gstin" ? sup.gstin.slice(0, 13) + "0" : sup.gstin,
+      o.flaw === "bad_gstin" ? 0.58 : c(),
+    ),
     invoiceNumber: field(o.flaw === "missing_number" ? "" : num, c()),
     invoiceDate: field(o.flaw === "missing_date" ? "" : date, low ? 0.62 : c()),
     dueDate: field(due.toISOString().slice(0, 10), low ? 0.55 : c()),
@@ -190,7 +204,7 @@ export function buildDemoState() {
     files: [{ name: "receipts_phone_scan.pdf", size: 22_400_000, pageCount: 0 }],
     invoiceIds: [],
     isDemo: true,
-    error: "The file could not be read. Try a higher-resolution scan under 20 MB.",
+    error: "The file could not be read. Try a higher-resolution scan under 50 MB.",
   };
   return {
     batches: [a.batch, b.batch, c.batch, d.batch, failed],

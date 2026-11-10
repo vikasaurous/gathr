@@ -31,10 +31,10 @@ export function SiteHeader() {
         </nav>
         <div className="hidden items-center gap-2 md:flex">
           <Button variant="ghost" size="sm" asChild>
-            <Link to="/app">Sign in</Link>
+            <Link to="/login">Sign in</Link>
           </Button>
           <Button variant="ink" size="sm" asChild>
-            <Link to="/app/new">Get started</Link>
+            <Link to="/register">Get started</Link>
           </Button>
         </div>
         <button className="md:hidden" onClick={() => setOpen(!open)} aria-label="Menu">
@@ -50,10 +50,10 @@ export function SiteHeader() {
           ))}
           <div className="mt-4 flex gap-2">
             <Button variant="outline" className="flex-1" asChild>
-              <Link to="/app">Sign in</Link>
+              <Link to="/login">Sign in</Link>
             </Button>
             <Button variant="ink" className="flex-1" asChild>
-              <Link to="/app/new">Get started</Link>
+              <Link to="/register">Get started</Link>
             </Button>
           </div>
         </div>
@@ -72,7 +72,9 @@ export function SiteFooter() {
       <div className="mx-auto grid max-w-[1240px] gap-12 px-6 py-16 md:grid-cols-12">
         <div className="md:col-span-6">
           <Wordmark />
-          <p className="mt-4 max-w-xs text-sm text-muted-foreground">Bring every invoice together.</p>
+          <p className="mt-4 max-w-xs text-sm text-muted-foreground">
+            Bring every invoice together.
+          </p>
         </div>
         {cols.map((c) => (
           <div key={c.h} className="md:col-span-3">
@@ -80,7 +82,10 @@ export function SiteFooter() {
             <ul className="space-y-2.5">
               {c.items.map(([to, l]) => (
                 <li key={to}>
-                  <Link to={to} className="text-sm text-foreground/80 transition-colors hover:text-foreground">
+                  <Link
+                    to={to}
+                    className="text-sm text-foreground/80 transition-colors hover:text-foreground"
+                  >
                     {l}
                   </Link>
                 </li>
@@ -90,7 +95,7 @@ export function SiteFooter() {
         ))}
       </div>
       <div className="mx-auto flex max-w-[1240px] justify-between border-t border-border px-6 py-6 text-xs text-muted-foreground">
-        <span>© 2026 gathr</span>
+        <span>© {new Date().getFullYear()} gathr</span>{" "}
         <span className="num">v0.1 · prototype</span>
       </div>
     </footer>
