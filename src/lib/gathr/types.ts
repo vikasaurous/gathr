@@ -70,6 +70,7 @@ export type ValidationCode =
   | "missing_invoice_number"
   | "invalid_gstin"
   | "missing_date"
+  | "invalid_amount"
   | "duplicate_candidate"
   | "tax_inconsistency"
   | "total_mismatch";
@@ -81,7 +82,11 @@ export interface ValidationIssue {
   message: string;
 }
 
-export const FIELD_META: { key: FieldKey; label: string; kind: "text" | "date" | "money" | "code" }[] = [
+export const FIELD_META: {
+  key: FieldKey;
+  label: string;
+  kind: "text" | "date" | "money" | "code";
+}[] = [
   { key: "supplier", label: "Supplier name", kind: "text" },
   { key: "gstin", label: "GSTIN", kind: "code" },
   { key: "invoiceNumber", label: "Invoice number", kind: "code" },

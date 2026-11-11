@@ -6,7 +6,12 @@ export const PLANS = [
     period: "per month",
     note: "For trying gathr on real paperwork.",
     allowance: "50 invoices / month",
-    items: ["Limited monthly invoice processing", "Basic invoice separation", "Basic extraction preview", "CSV export"],
+    items: [
+      "Limited monthly invoice processing",
+      "Basic invoice separation",
+      "Basic extraction preview",
+      "CSV export",
+    ],
   },
   {
     name: "Pro",
@@ -14,7 +19,14 @@ export const PLANS = [
     period: "per month",
     note: "For independent accountants and bookkeepers.",
     allowance: "1,000 invoices / month",
-    items: ["Higher processing allowance", "Bulk processing", "Duplicate detection", "Automatic naming", "Excel and ZIP exports", "Batch history"],
+    items: [
+      "Higher processing allowance",
+      "Bulk processing",
+      "Duplicate detection",
+      "Automatic naming",
+      "Excel and ZIP exports",
+      "Batch history",
+    ],
     featured: true,
   },
   {
@@ -23,6 +35,12 @@ export const PLANS = [
     period: "per month",
     note: "For firms and finance teams.",
     allowance: "5,000 invoices / month",
-    items: ["Shared workspaces", "Team access", "Higher processing allowance", "Advanced workflows", "Priority support"],
+    items: [
+      "Shared workspaces",
+      "Team access",
+      "Higher processing allowance",
+      "Advanced workflows",
+      "Priority support",
+    ],
   },
 ];

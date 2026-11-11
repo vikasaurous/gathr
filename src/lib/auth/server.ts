@@ -40,6 +40,21 @@ export const auth = betterAuth({
 
   trustedOrigins: ["http://localhost:8080"],
 
+  // Keep database-backed sessions in Neon PostgreSQL while caching verified session
+  // payloads in a signed HttpOnly cookie for 60s to avoid redundant DB roundtrips
+  // on every protected route transition.
+  //
+  // Trade-off: sign-out immediately revokes the DB session and clears cookies in the
+  // current browser, whereas another device holding a valid cookieCache retains read
+  // access for at most 60s until the cache expires and re-validates against Neon.
+  // Sensitive Better Auth endpoints bypass cookieCache automatically.
+  session: {
+    cookieCache: {
+      enabled: true,
+      maxAge: 60,
+    },
+  },
+
   emailAndPassword: {
     enabled: true,
     requireEmailVerification: true,

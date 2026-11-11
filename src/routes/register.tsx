@@ -57,7 +57,6 @@ function RegisterPage() {
           sessionStorage.setItem("gathr_pending_verification_email", email.trim());
           sessionStorage.setItem("gathr_otp_sent_at", Date.now().toString());
         }
-        await router.invalidate();
         await router.navigate({
           to: "/verify-email",
         });

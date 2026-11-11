@@ -12,5 +12,19 @@ export const Route = createFileRoute("/privacy")({
       { name: "twitter:card", content: "summary_large_image" },
     ],
   }),
-  component: () => <PlainPage eyebrow="Privacy" title={<>Handled <em>with care.</em></>} paragraphs={["This prototype runs entirely in your browser. Uploaded files are not sent anywhere; processing results shown are demonstration data.", "When storage is connected, original files, source page references, extracted values and your corrections will be kept together so every record can be traced.", "A full privacy policy will be published before gathr processes real documents."]} />,
+  component: () => (
+    <PlainPage
+      eyebrow="Privacy"
+      title={
+        <>
+          Handled <em>with care.</em>
+        </>
+      }
+      paragraphs={[
+        "This prototype runs entirely in your browser. Uploaded files are not sent anywhere; processing results shown are demonstration data.",
+        "When storage is connected, original files, source page references, extracted values and your corrections will be kept together so every record can be traced.",
+        "A full privacy policy will be published before gathr processes real documents.",
+      ]}
+    />
+  ),
 });

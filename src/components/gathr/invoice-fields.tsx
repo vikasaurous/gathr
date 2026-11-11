@@ -31,13 +31,33 @@ export function InvoiceFields({
               const meta = FIELD_META.find((m) => m.key === k)!;
               const f = invoice.fields[k];
               const dirty = draft[k] !== f.value;
-              const issue = issues.find((i) => i.field === k);
+              const fieldIssues = issues.filter((i) => i.field === k);
+              const primaryIssue =
+                fieldIssues.find((i) => i.severity === "error") ?? fieldIssues[0];
               const source = dirty ? (draft[k].trim() ? "corrected" : "missing") : f.source;
+              const issueListId = `f-${k}-issues`;
               return (
-                <div key={k} className={cn("grid grid-cols-1 gap-1.5 py-2.5 sm:grid-cols-[130px_1fr] sm:items-center sm:gap-3", issue && "bg-destructive/[0.03]")}>
-                  <label htmlFor={`f-${k}`} className="flex items-center gap-1.5 text-[12.5px] text-muted-foreground">
+                <div
+                  key={k}
+                  className={cn(
+                    "grid grid-cols-1 gap-1.5 py-2.5 sm:grid-cols-[130px_1fr] sm:items-center sm:gap-3",
+                    primaryIssue &&
+                      (primaryIssue.severity === "error"
+                        ? "bg-destructive/[0.03]"
+                        : "bg-warning/[0.04]"),
+                  )}
+                >
+                  <label
+                    htmlFor={`f-${k}`}
+                    className="flex items-center gap-1.5 text-[12.5px] text-muted-foreground"
+                  >
                     {meta.label}
-                    {issue && (issue.severity === "error" ? <CircleAlert className="size-3.5 text-destructive" /> : <AlertTriangle className="size-3.5 text-warning" />)}
+                    {primaryIssue &&
+                      (primaryIssue.severity === "error" ? (
+                        <CircleAlert className="size-3.5 text-destructive" />
+                      ) : (
+                        <AlertTriangle className="size-3.5 text-warning" />
+                      ))}
                   </label>
                   <div>
                     <div className="flex items-center gap-2">
@@ -48,8 +68,15 @@ export function InvoiceFields({
                         value={draft[k]}
                         onFocus={() => onFocusField(k)}
                         onBlur={() => onFocusField(null)}
-                        onChange={(e) => onChange(k, meta.kind === "code" ? e.target.value.toUpperCase() : e.target.value)}
+                        onChange={(e) =>
+                          onChange(
+                            k,
+                            meta.kind === "code" ? e.target.value.toUpperCase() : e.target.value,
+                          )
+                        }
                         placeholder="Not found"
+                        aria-invalid={primaryIssue?.severity === "error" ? true : undefined}
+                        aria-describedby={fieldIssues.length > 0 ? issueListId : undefined}
                         className={cn(
                           "h-8 min-w-0 flex-1 rounded-md border border-transparent bg-transparent px-2 text-[13.5px] transition-colors hover:border-border focus:border-primary focus:bg-surface focus:outline-none",
                           meta.kind !== "text" && "num text-[12.5px]",
@@ -62,8 +89,26 @@ export function InvoiceFields({
                         <SourceTag source={source} confidence={f.confidence} />
                       </span>
                     </div>
-                    {issue && <p className={cn("px-2 pt-1 text-[11.5px]", issue.severity === "error" ? "text-destructive" : "text-warning")}>{issue.message}</p>}
-                    {f.originalValue !== undefined && !dirty && <p className="num px-2 pt-0.5 text-[10.5px] text-muted-foreground">was: {f.originalValue || "empty"}</p>}
+                    {fieldIssues.length > 0 && (
+                      <div id={issueListId} className="space-y-0.5 px-2 pt-1">
+                        {fieldIssues.map((issue, idx) => (
+                          <p
+                            key={`${issue.code}-${idx}`}
+                            className={cn(
+                              "text-[11.5px]",
+                              issue.severity === "error" ? "text-destructive" : "text-warning",
+                            )}
+                          >
+                            {issue.message}
+                          </p>
+                        ))}
+                      </div>
+                    )}
+                    {f.originalValue !== undefined && !dirty && (
+                      <p className="num px-2 pt-0.5 text-[10.5px] text-muted-foreground">
+                        was: {f.originalValue || "empty"}
+                      </p>
+                    )}
                   </div>
                 </div>
               );

@@ -1,6 +1,14 @@
 import { PageIntro, SiteFooter, SiteHeader } from "./site-chrome";
 
-export function PlainPage({ eyebrow, title, paragraphs }: { eyebrow: string; title: React.ReactNode; paragraphs: string[] }) {
+export function PlainPage({
+  eyebrow,
+  title,
+  paragraphs,
+}: {
+  eyebrow: string;
+  title: React.ReactNode;
+  paragraphs: string[];
+}) {
   return (
     <div className="min-h-screen">
       <SiteHeader />

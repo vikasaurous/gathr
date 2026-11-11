@@ -9,7 +9,8 @@ for (const line of envLocal.split(/\r?\n/)) {
   if (!t || t.startsWith("#")) continue;
   const eq = t.indexOf("=");
   if (eq === -1) continue;
-  const k = t.slice(0, eq).trim(), v = t.slice(eq + 1).trim();
+  const k = t.slice(0, eq).trim(),
+    v = t.slice(eq + 1).trim();
   if (!process.env[k]) process.env[k] = v;
 }
 const { Pool } = await import("@neondatabase/serverless");
@@ -21,6 +22,6 @@ const { rows } = await client.query(`
   ORDER BY table_name
 `);
 console.log("Tables in development database:");
-rows.forEach(r => console.log(" ✓", r.table_name));
-client.release(); await pool.end();
-
+rows.forEach((r) => console.log(" ✓", r.table_name));
+client.release();
+await pool.end();

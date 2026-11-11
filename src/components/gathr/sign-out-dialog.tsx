@@ -77,19 +77,17 @@ export function SignOutDialog({
         return;
       }
 
-      // Clear client-side query cache to purge any cached user workspace data
+      // Clear client-side query and router caches without re-running /app's guard after sign-out
       try {
         queryClient.clear();
       } catch {
         // QueryClient clear fallback
       }
+      router.clearCache?.();
 
-      // Invalidate router context so route loaders and guards refresh
-      await router.invalidate();
-
-      // Close modal and navigate to login
+      // Close modal and navigate directly to login
       handleOpenChange(false);
-      await router.navigate({ to: "/login" });
+      await router.navigate({ to: "/login", replace: true });
     } catch (err) {
       console.error("[SignOutDialog] Error signing out:", err);
       setError("An unexpected error occurred while signing out. Please try again.");
@@ -157,4 +155,3 @@ export function SignOutDialog({
     </AlertDialog>
   );
 }
-

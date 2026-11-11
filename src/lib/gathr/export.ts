@@ -348,74 +348,74 @@ export function generateInvoiceHtml(inv: Invoice, pageNum: number, totalPages: n
       font-family: 'GathrFont';
       font-style: normal;
       font-weight: 400;
-      src: url('/fonts/noto-sans-latin-400.woff2') format('woff2');
+      src: url('/fonts/noto-sans/noto-sans-latin-400.woff2') format('woff2');
       unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD, U+20B9;
     }
     @font-face {
       font-family: 'GathrFont';
       font-style: normal;
       font-weight: 700;
-      src: url('/fonts/noto-sans-latin-700.woff2') format('woff2');
+      src: url('/fonts/noto-sans/noto-sans-latin-700.woff2') format('woff2');
       unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD, U+20B9;
     }
     @font-face {
       font-family: 'GathrFont';
       font-style: normal;
       font-weight: 400;
-      src: url('/fonts/noto-sans-devanagari-400.woff2') format('woff2');
+      src: url('/fonts/noto-sans/noto-sans-devanagari-400.woff2') format('woff2');
       unicode-range: U+0900-097F, U+1CD0-1CF9, U+200C-200D, U+20A8, U+20B9, U+25CC, U+A830-A839, U+A8E0-A8FF;
     }
     @font-face {
       font-family: 'GathrFont';
       font-style: normal;
       font-weight: 700;
-      src: url('/fonts/noto-sans-devanagari-700.woff2') format('woff2');
+      src: url('/fonts/noto-sans/noto-sans-devanagari-700.woff2') format('woff2');
       unicode-range: U+0900-097F, U+1CD0-1CF9, U+200C-200D, U+20A8, U+20B9, U+25CC, U+A830-A839, U+A8E0-A8FF;
     }
     @font-face {
       font-family: 'GathrFont';
       font-style: normal;
       font-weight: 400;
-      src: url('/fonts/noto-sans-tamil-400.woff2') format('woff2');
+      src: url('/fonts/noto-sans/noto-sans-tamil-400.woff2') format('woff2');
       unicode-range: U+0B82-0BFA, U+200C-200D, U+20B9, U+25CC;
     }
     @font-face {
       font-family: 'GathrFont';
       font-style: normal;
       font-weight: 700;
-      src: url('/fonts/noto-sans-tamil-700.woff2') format('woff2');
+      src: url('/fonts/noto-sans/noto-sans-tamil-700.woff2') format('woff2');
       unicode-range: U+0B82-0BFA, U+200C-200D, U+20B9, U+25CC;
     }
     @font-face {
       font-family: 'GathrFont';
       font-style: normal;
       font-weight: 400;
-      src: url('/fonts/noto-sans-bengali-400.woff2') format('woff2');
+      src: url('/fonts/noto-sans/noto-sans-bengali-400.woff2') format('woff2');
       unicode-range: U+0951-0952, U+0964-0965, U+0980-09FF, U+200C-200D, U+20B9, U+25CC;
     }
     @font-face {
       font-family: 'GathrFont';
       font-style: normal;
       font-weight: 700;
-      src: url('/fonts/noto-sans-bengali-700.woff2') format('woff2');
+      src: url('/fonts/noto-sans/noto-sans-bengali-700.woff2') format('woff2');
       unicode-range: U+0951-0952, U+0964-0965, U+0980-09FF, U+200C-200D, U+20B9, U+25CC;
     }
     @font-face {
       font-family: 'GathrFont';
       font-style: normal;
       font-weight: 400;
-      src: url('/fonts/noto-sans-jp-113-400-normal.woff2') format('woff2'),
-           url('/fonts/noto-sans-jp-117-400-normal.woff2') format('woff2'),
-           url('/fonts/noto-sans-jp-118-400-normal.woff2') format('woff2');
+      src: url('/fonts/noto-sans/noto-sans-jp-113-400-normal.woff2') format('woff2'),
+           url('/fonts/noto-sans/noto-sans-jp-117-400-normal.woff2') format('woff2'),
+           url('/fonts/noto-sans/noto-sans-jp-118-400-normal.woff2') format('woff2');
       unicode-range: U+3000-303F, U+3040-309F, U+30A0-30FF, U+4E00-9FAF, U+FF00-FFEF;
     }
     @font-face {
       font-family: 'GathrFont';
       font-style: normal;
       font-weight: 700;
-      src: url('/fonts/noto-sans-jp-113-700-normal.woff2') format('woff2'),
-           url('/fonts/noto-sans-jp-117-700-normal.woff2') format('woff2'),
-           url('/fonts/noto-sans-jp-118-700-normal.woff2') format('woff2');
+      src: url('/fonts/noto-sans/noto-sans-jp-113-700-normal.woff2') format('woff2'),
+           url('/fonts/noto-sans/noto-sans-jp-117-700-normal.woff2') format('woff2'),
+           url('/fonts/noto-sans/noto-sans-jp-118-700-normal.woff2') format('woff2');
       unicode-range: U+3000-303F, U+3040-309F, U+30A0-30FF, U+4E00-9FAF, U+FF00-FFEF;
     }
   </style>

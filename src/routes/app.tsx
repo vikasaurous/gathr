@@ -12,7 +12,6 @@ import {
 import { Wordmark } from "@/components/gathr/brand";
 import { useWorkspace } from "@/lib/gathr/store";
 import { cn } from "@/lib/utils";
-import { useSession } from "@/lib/auth/client";
 import { getSessionFn } from "@/lib/auth/functions";
 import { SignOutDialog } from "@/components/gathr/sign-out-dialog";
 
@@ -50,16 +49,17 @@ const NAV = [
 
 function AppLayout() {
   const ws = useWorkspace();
-  const { session: serverSession } = Route.useRouteContext();
-  const { data: clientSession } = useSession();
-  const user = clientSession?.user ?? serverSession?.user;
-  const displayName = user?.name ?? user?.email ?? "Account";
-  const initials = displayName
-    .split(" ")
-    .map((w) => w[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
+  const { session } = Route.useRouteContext();
+  const user = session?.user;
+  const displayName = user?.name?.trim() || user?.email || "Account";
+  const initials =
+    displayName
+      .split(/\s+/)
+      .filter(Boolean)
+      .map((w) => w[0])
+      .join("")
+      .slice(0, 2)
+      .toUpperCase() || "A";
   const pending = ws.invoices.filter((i) => i.status === "needs_review").length;
   return (
     <div className="min-h-screen bg-background lg:grid lg:grid-cols-[232px_1fr]">

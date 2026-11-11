@@ -19,19 +19,37 @@ export function DocumentPage({
 }) {
   const f = invoice.fields;
   const first = page === invoice.pages[0];
-  const hl = (k: string) => cn("rounded-[2px] transition-colors", highlight === k && "bg-warning/25 outline outline-1 outline-warning");
+  const hl = (k: string) =>
+    cn(
+      "rounded-[2px] transition-colors",
+      highlight === k && "bg-warning/25 outline outline-1 outline-warning",
+    );
   const taxable = Number(f.taxableValue.value) || 0;
-  const lines = [0.42, 0.33, 0.25].map((r, i) => ({ d: ["Professional services", "Materials & supplies", "Delivery and handling"][i], a: taxable * r }));
+  const lines = [0.42, 0.33, 0.25].map((r, i) => ({
+    d: ["Professional services", "Materials & supplies", "Delivery and handling"][i],
+    a: taxable * r,
+  }));
   return (
-    <div className={cn("aspect-[1/1.414] w-full bg-surface p-[7%] text-[clamp(6px,1.05cqw,11px)] text-foreground shadow-sheet [container-type:inline-size]", className)}>
+    <div
+      className={cn(
+        "aspect-[1/1.414] w-full bg-surface p-[7%] text-[clamp(6px,1.05cqw,11px)] text-foreground shadow-sheet [container-type:inline-size]",
+        className,
+      )}
+    >
       {first ? (
         <div className="flex h-full flex-col">
           <div className="flex items-start justify-between">
             <div>
-              <p className={cn("font-serif text-[2.4em] leading-none", hl("supplier"))}>{f.supplier.value || "—"}</p>
-              <p className={cn("num mt-[0.8em] text-muted-foreground", hl("gstin"))}>GSTIN {f.gstin.value || "—"}</p>
+              <p className={cn("font-serif text-[2.4em] leading-none", hl("supplier"))}>
+                {f.supplier.value || "—"}
+              </p>
+              <p className={cn("num mt-[0.8em] text-muted-foreground", hl("gstin"))}>
+                GSTIN {f.gstin.value || "—"}
+              </p>
             </div>
-            <p className="num text-[1.1em] uppercase tracking-[0.2em] text-muted-foreground">Tax invoice</p>
+            <p className="num text-[1.1em] uppercase tracking-[0.2em] text-muted-foreground">
+              Tax invoice
+            </p>
           </div>
           <div className="mt-[8%] grid grid-cols-3 gap-[4%] border-y border-border py-[3%]">
             {[
@@ -41,7 +59,9 @@ export function DocumentPage({
             ].map(([l, v, k]) => (
               <div key={k}>
                 <p className="text-[0.85em] uppercase tracking-wider text-muted-foreground">{l}</p>
-                <p className={cn("num mt-[0.3em]", hl(k ?? ""), !v && "text-destructive")}>{v || "not found"}</p>
+                <p className={cn("num mt-[0.3em]", hl(k ?? ""), !v && "text-destructive")}>
+                  {v || "not found"}
+                </p>
               </div>
             ))}
           </div>
@@ -78,7 +98,11 @@ export function DocumentPage({
           </p>
           <div className="mt-[8%] space-y-[1.2em]">
             {Array.from({ length: 14 }).map((_, i) => (
-              <div key={i} className="h-[0.55em] rounded-full bg-secondary" style={{ width: `${55 + ((i * 37) % 40)}%` }} />
+              <div
+                key={i}
+                className="h-[0.55em] rounded-full bg-secondary"
+                style={{ width: `${55 + ((i * 37) % 40)}%` }}
+              />
             ))}
           </div>
           <p className="mt-auto text-muted-foreground">Terms & bank details</p>

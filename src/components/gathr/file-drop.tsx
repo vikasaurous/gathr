@@ -20,7 +20,17 @@ export function checkFile(f: File): string | undefined {
   return undefined;
 }
 
-export function FileDrop({ files, onAdd, onRemove, disabled }: { files: QueuedFile[]; onAdd: (f: File[]) => void; onRemove: (id: string) => void; disabled?: boolean }) {
+export function FileDrop({
+  files,
+  onAdd,
+  onRemove,
+  disabled,
+}: {
+  files: QueuedFile[];
+  onAdd: (f: File[]) => void;
+  onRemove: (id: string) => void;
+  disabled?: boolean;
+}) {
   const [over, setOver] = useState(false);
   const input = useRef<HTMLInputElement>(null);
   return (
@@ -52,16 +62,24 @@ export function FileDrop({ files, onAdd, onRemove, disabled }: { files: QueuedFi
             <span
               key={i}
               className="absolute inset-0 rounded-sm border border-border bg-paper transition-transform duration-500"
-              style={{ transform: over ? `rotate(${(i - 1) * 2}deg)` : `rotate(${(i - 1) * 9}deg) translateX(${(i - 1) * 6}px)` }}
+              style={{
+                transform: over
+                  ? `rotate(${(i - 1) * 2}deg)`
+                  : `rotate(${(i - 1) * 9}deg) translateX(${(i - 1) * 6}px)`,
+              }}
             />
           ))}
           <Upload className="absolute inset-0 m-auto size-5 text-primary" strokeWidth={1.5} />
         </div>
-        <p className="font-serif text-[26px] leading-tight">{over ? "Release to add" : "Drop PDFs here"}</p>
+        <p className="font-serif text-[26px] leading-tight">
+          {over ? "Release to add" : "Drop PDFs here"}
+        </p>
         <p className="mt-2 text-[13.5px] text-muted-foreground">
           or <span className="text-foreground underline underline-offset-4">browse your files</span>
         </p>
-        <p className="num mt-6 text-[11px] text-muted-foreground">PDF only · up to {MAX_FILES} files · 50 MB each · combined or individual invoices</p>
+        <p className="num mt-6 text-[11px] text-muted-foreground">
+          PDF only · up to {MAX_FILES} files · 50 MB each · combined or individual invoices
+        </p>
         <input
           ref={input}
           type="file"
@@ -78,14 +96,30 @@ export function FileDrop({ files, onAdd, onRemove, disabled }: { files: QueuedFi
         <ul className="mt-6 border-t border-border">
           {files.map((q) => (
             <li key={q.id} className="flex items-center gap-3 border-b border-border py-3">
-              <FileText className={cn("size-4 shrink-0", q.error ? "text-destructive" : "text-muted-foreground")} strokeWidth={1.5} />
+              <FileText
+                className={cn(
+                  "size-4 shrink-0",
+                  q.error ? "text-destructive" : "text-muted-foreground",
+                )}
+                strokeWidth={1.5}
+              />
               <div className="min-w-0 flex-1">
                 <p className="truncate text-[13.5px]">{q.file.name}</p>
-                <p className={cn("num text-[11px]", q.error ? "text-destructive" : "text-muted-foreground")}>
+                <p
+                  className={cn(
+                    "num text-[11px]",
+                    q.error ? "text-destructive" : "text-muted-foreground",
+                  )}
+                >
                   {formatBytes(q.file.size)} · {q.error ?? "Ready"}
                 </p>
               </div>
-              <button disabled={disabled} onClick={() => onRemove(q.id)} className="rounded-sm p-1.5 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground" aria-label={`Remove ${q.file.name}`}>
+              <button
+                disabled={disabled}
+                onClick={() => onRemove(q.id)}
+                className="rounded-sm p-1.5 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                aria-label={`Remove ${q.file.name}`}
+              >
                 <X className="size-4" />
               </button>
             </li>
