@@ -6,7 +6,6 @@ import { PageHeader } from "@/components/gathr/common";
 import { BatchStatusPill, DemoBadge } from "@/components/gathr/status";
 import { formatDate, formatDashboardDate } from "@/lib/gathr/format";
 import { useWorkspace } from "@/lib/gathr/store";
-import { useSession } from "@/lib/auth/client";
 
 export const Route = createFileRoute("/app/")({
   head: () => ({
@@ -90,8 +89,8 @@ function useDashboardDate() {
 
 function Overview() {
   const ws = useWorkspace();
-  const { data: session } = useSession();
-  const firstName = session?.user?.name?.split(" ")[0] ?? "there";
+  const { session } = Route.useRouteContext();
+  const firstName = session?.user?.name?.trim().split(/\s+/)[0] || "there";
   const currentDate = useDashboardDate();
   const inv = ws.invoices;
   const pending = inv.filter((i) => i.status === "needs_review");

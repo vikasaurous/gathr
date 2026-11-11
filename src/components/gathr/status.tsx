@@ -9,9 +9,22 @@ const TONE = {
   accent: "text-primary bg-primary/10",
 } as const;
 
-export function Pill({ tone, children, pulse }: { tone: keyof typeof TONE; children: React.ReactNode; pulse?: boolean }) {
+export function Pill({
+  tone,
+  children,
+  pulse,
+}: {
+  tone: keyof typeof TONE;
+  children: React.ReactNode;
+  pulse?: boolean;
+}) {
   return (
-    <span className={cn("inline-flex items-center gap-1.5 whitespace-nowrap rounded-sm px-2 py-0.5 text-[11.5px] font-medium", TONE[tone])}>
+    <span
+      className={cn(
+        "inline-flex items-center gap-1.5 whitespace-nowrap rounded-sm px-2 py-0.5 text-[11.5px] font-medium",
+        TONE[tone],
+      )}
+    >
       <span className={cn("size-1.5 rounded-full bg-current", pulse && "animate-pulse")} />
       {children}
     </span>
@@ -42,15 +55,35 @@ export function InvoiceStatusPill({ status }: { status: InvoiceStatus }) {
   return <Pill tone={m[status][0]}>{m[status][1]}</Pill>;
 }
 
-export function SourceTag({ source, confidence }: { source: FieldSource; confidence: number | null }) {
-  if (source === "missing") return <span className="num text-[10.5px] uppercase tracking-wider text-destructive">Missing</span>;
-  if (source === "corrected") return <span className="num text-[10.5px] uppercase tracking-wider text-primary">Corrected</span>;
+export function SourceTag({
+  source,
+  confidence,
+}: {
+  source: FieldSource;
+  confidence: number | null;
+}) {
+  if (source === "missing")
+    return (
+      <span className="num text-[10.5px] uppercase tracking-wider text-destructive">Missing</span>
+    );
+  if (source === "corrected")
+    return (
+      <span className="num text-[10.5px] uppercase tracking-wider text-primary">Corrected</span>
+    );
   const pct = Math.round((confidence ?? 0) * 100);
   const low = pct < 75;
   return (
-    <span className={cn("num inline-flex items-center gap-1.5 text-[10.5px] uppercase tracking-wider", low ? "text-warning" : "text-muted-foreground")}>
+    <span
+      className={cn(
+        "num inline-flex items-center gap-1.5 text-[10.5px] uppercase tracking-wider",
+        low ? "text-warning" : "text-muted-foreground",
+      )}
+    >
       <span className="relative h-[3px] w-8 overflow-hidden rounded-full bg-border">
-        <span className={cn("absolute inset-y-0 left-0", low ? "bg-warning" : "bg-success")} style={{ width: `${pct}%` }} />
+        <span
+          className={cn("absolute inset-y-0 left-0", low ? "bg-warning" : "bg-success")}
+          style={{ width: `${pct}%` }}
+        />
       </span>
       {low ? "Unverified" : "Extracted"} {pct}%
     </span>
@@ -59,7 +92,12 @@ export function SourceTag({ source, confidence }: { source: FieldSource; confide
 
 export function DemoBadge({ className }: { className?: string }) {
   return (
-    <span className={cn("num inline-flex items-center rounded-sm border border-warning/40 px-1.5 py-px text-[10px] uppercase tracking-wider text-warning", className)}>
+    <span
+      className={cn(
+        "num inline-flex items-center rounded-sm border border-warning/40 px-1.5 py-px text-[10px] uppercase tracking-wider text-warning",
+        className,
+      )}
+    >
       Demo data
     </span>
   );

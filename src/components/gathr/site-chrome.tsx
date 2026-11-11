@@ -44,7 +44,12 @@ export function SiteHeader() {
       {open && (
         <div className="border-t border-border px-6 py-4 md:hidden">
           {NAV.map((n) => (
-            <Link key={n.to} to={n.to} onClick={() => setOpen(false)} className="block border-b border-border py-3 text-sm">
+            <Link
+              key={n.to}
+              to={n.to}
+              onClick={() => setOpen(false)}
+              className="block border-b border-border py-3 text-sm"
+            >
               {n.label}
             </Link>
           ))}
@@ -64,8 +69,23 @@ export function SiteHeader() {
 
 export function SiteFooter() {
   const cols = [
-    { h: "Product", items: [["/product", "Product"], ["/features", "Features"], ["/how-it-works", "How it works"], ["/pricing", "Pricing"]] },
-    { h: "Company", items: [["/privacy", "Privacy"], ["/terms", "Terms"], ["/contact", "Contact"]] },
+    {
+      h: "Product",
+      items: [
+        ["/product", "Product"],
+        ["/features", "Features"],
+        ["/how-it-works", "How it works"],
+        ["/pricing", "Pricing"],
+      ],
+    },
+    {
+      h: "Company",
+      items: [
+        ["/privacy", "Privacy"],
+        ["/terms", "Terms"],
+        ["/contact", "Contact"],
+      ],
+    },
   ] as const;
   return (
     <footer className="border-t border-border">
@@ -102,12 +122,24 @@ export function SiteFooter() {
   );
 }
 
-export function PageIntro({ eyebrow, title, children }: { eyebrow: string; title: React.ReactNode; children?: React.ReactNode }) {
+export function PageIntro({
+  eyebrow,
+  title,
+  children,
+}: {
+  eyebrow: string;
+  title: React.ReactNode;
+  children?: React.ReactNode;
+}) {
   return (
     <section className="mx-auto max-w-[1240px] px-6 pb-16 pt-20 md:pt-28">
       <p className="eyebrow">{eyebrow}</p>
       <h1 className="display mt-6 max-w-4xl text-[56px] md:text-[96px]">{title}</h1>
-      {children && <div className="mt-8 max-w-xl text-lg leading-relaxed text-muted-foreground">{children}</div>}
+      {children && (
+        <div className="mt-8 max-w-xl text-lg leading-relaxed text-muted-foreground">
+          {children}
+        </div>
+      )}
     </section>
   );
 }

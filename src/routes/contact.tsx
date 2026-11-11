@@ -12,5 +12,18 @@ export const Route = createFileRoute("/contact")({
       { name: "twitter:card", content: "summary_large_image" },
     ],
   }),
-  component: () => <PlainPage eyebrow="Contact" title={<>Say <em>hello.</em></>} paragraphs={["We would like to hear how you handle invoices today.", "Write to hello@gathr.example — a placeholder address for this prototype."]} />,
+  component: () => (
+    <PlainPage
+      eyebrow="Contact"
+      title={
+        <>
+          Say <em>hello.</em>
+        </>
+      }
+      paragraphs={[
+        "We would like to hear how you handle invoices today.",
+        "Write to hello@gathr.example — a placeholder address for this prototype.",
+      ]}
+    />
+  ),
 });

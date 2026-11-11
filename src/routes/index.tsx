@@ -10,9 +10,17 @@ export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
       { title: "gathr — Paperwork, brought into order" },
-      { name: "description", content: "Turn scattered invoices and combined PDFs into clean, organized financial records." },
+      {
+        name: "description",
+        content:
+          "Turn scattered invoices and combined PDFs into clean, organized financial records.",
+      },
       { property: "og:title", content: "gathr — Paperwork, brought into order" },
-      { property: "og:description", content: "Turn scattered invoices and combined PDFs into clean, organized financial records." },
+      {
+        property: "og:description",
+        content:
+          "Turn scattered invoices and combined PDFs into clean, organized financial records.",
+      },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
     ],
@@ -37,7 +45,8 @@ function Home() {
               order.
             </h1>
             <p className="mt-8 max-w-md text-[17px] leading-relaxed text-muted-foreground">
-              Turn scattered invoices and combined PDFs into clean, organized financial records. Less sorting. Less manual work. More clarity.
+              Turn scattered invoices and combined PDFs into clean, organized financial records.
+              Less sorting. Less manual work. More clarity.
             </p>
             <div className="mt-9 flex flex-wrap gap-3">
               <Button size="lg" variant="ink" asChild>
@@ -49,7 +58,9 @@ function Home() {
                 <Link to="/how-it-works">Explore the workflow</Link>
               </Button>
             </div>
-            <p className="mt-10 border-t border-border pt-5 text-[13px] text-muted-foreground">Built for accountants, bookkeepers and modern businesses.</p>
+            <p className="mt-10 border-t border-border pt-5 text-[13px] text-muted-foreground">
+              Built for accountants, bookkeepers and modern businesses.
+            </p>
           </div>
           <div className="animate-rise [animation-delay:150ms] lg:col-span-7">
             <HeroPreview />
@@ -66,15 +77,21 @@ function Home() {
               to <em>decisions.</em>
             </h2>
             <p className="max-w-sm self-end text-muted-foreground lg:col-span-4 lg:col-start-9">
-              Everything that happens between receiving an invoice and having it ready for your records.
+              Everything that happens between receiving an invoice and having it ready for your
+              records.
             </p>
           </div>
           <div className="mt-16 grid border-t border-foreground md:grid-cols-3">
             {STEPS.map(([n, t, d], i) => (
-              <div key={n} className={`py-10 md:px-8 ${i ? "border-t border-border md:border-l md:border-t-0" : "md:pl-0"}`}>
+              <div
+                key={n}
+                className={`py-10 md:px-8 ${i ? "border-t border-border md:border-l md:border-t-0" : "md:pl-0"}`}
+              >
                 <span className="num text-xs text-muted-foreground">{n}</span>
                 <h3 className="mt-10 font-serif text-[40px] leading-none">{t}</h3>
-                <p className="mt-4 max-w-xs text-[15px] leading-relaxed text-muted-foreground">{d}</p>
+                <p className="mt-4 max-w-xs text-[15px] leading-relaxed text-muted-foreground">
+                  {d}
+                </p>
               </div>
             ))}
           </div>
@@ -95,8 +112,12 @@ function Home() {
                   <p className="eyebrow">Filename preview</p>
                   <p className="num mt-3 text-[12.5px]">Northfield_NOR-26-482_2026-10-21.pdf</p>
                   <p className="num mt-1 text-[12.5px]">Kavya_KAV-26-117_2026-10-24.pdf</p>
-                  <p className="num mt-1 text-[12.5px] text-muted-foreground line-through">Kavya_KAV-26-117_2026-10-24.pdf</p>
-                  <p className="mt-2 text-[11.5px] text-destructive">Duplicate candidate · excluded</p>
+                  <p className="num mt-1 text-[12.5px] text-muted-foreground line-through">
+                    Kavya_KAV-26-117_2026-10-24.pdf
+                  </p>
+                  <p className="mt-2 text-[11.5px] text-destructive">
+                    Duplicate candidate · excluded
+                  </p>
                 </div>
               </div>
               <ul className="grid gap-x-10 sm:grid-cols-2 lg:col-span-8">
@@ -122,7 +143,8 @@ function Home() {
               Information should be <em>easy to trust.</em>
             </h2>
             <p className="max-w-sm self-end text-muted-foreground lg:col-span-4 lg:col-start-9">
-              See where every detail came from. Review uncertain information. Keep your records accurate.
+              See where every detail came from. Review uncertain information. Keep your records
+              accurate.
             </p>
           </div>
           <div className="mt-14">
@@ -144,7 +166,8 @@ function Home() {
             <div className="self-end lg:col-span-4 lg:col-start-9">
               <ShieldCheck className="size-5 text-ink-muted" strokeWidth={1.5} />
               <p className="mt-5 leading-relaxed text-ink-muted">
-                Financial documents contain sensitive information. gathr is designed around responsible document handling, controlled access and transparent processing.
+                Financial documents contain sensitive information. gathr is designed around
+                responsible document handling, controlled access and transparent processing.
               </p>
               <ul className="mt-8 space-y-3 border-t border-ink-border pt-6 text-sm">
                 <li>Original files and source pages are preserved.</li>
@@ -162,7 +185,9 @@ function Home() {
             <br />
             <em>better work.</em>
           </h2>
-          <p className="mx-auto mt-6 max-w-md text-muted-foreground">Bring your invoice workflow together with gathr.</p>
+          <p className="mx-auto mt-6 max-w-md text-muted-foreground">
+            Bring your invoice workflow together with gathr.
+          </p>
           <Button size="lg" variant="ink" className="mt-10" asChild>
             <Link to="/app/new">
               Get started <ArrowRight />

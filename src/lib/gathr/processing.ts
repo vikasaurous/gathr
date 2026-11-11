@@ -22,7 +22,10 @@ export interface ProcessingInput {
 }
 
 export interface ProcessingEngine {
-  run(input: ProcessingInput, onStage: (index: number, progress: number) => void): Promise<{ batch: Batch; invoices: Invoice[] }>;
+  run(
+    input: ProcessingInput,
+    onStage: (index: number, progress: number) => void,
+  ): Promise<{ batch: Batch; invoices: Invoice[] }>;
 }
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -48,7 +51,7 @@ export const demoEngine: ProcessingEngine = {
           batchId,
           sourceFile: f.name,
           startPage: page,
-          seed: Date.now() % 100000 + n * 13 + fi,
+          seed: (Date.now() % 100000) + n * 13 + fi,
           baseDate: now,
           flaw: flaws[n % flaws.length],
         });

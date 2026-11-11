@@ -1,0 +1,14 @@
+# Normalize text files to LF across platforms regardless of local core.autocrlf.
+* text=auto eol=lf
+
+# Binary assets
+*.woff binary
+*.woff2 binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.pdf binary
+

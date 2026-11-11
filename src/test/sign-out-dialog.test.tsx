@@ -14,10 +14,12 @@ vi.mock("@/lib/auth/client", () => ({
 // Mock router
 const mockNavigate = vi.fn();
 const mockInvalidate = vi.fn();
+const mockClearCache = vi.fn();
 vi.mock("@tanstack/react-router", () => ({
   useRouter: () => ({
     navigate: mockNavigate,
     invalidate: mockInvalidate,
+    clearCache: mockClearCache,
   }),
 }));
 
@@ -74,7 +76,7 @@ describe("SignOutDialog Component", () => {
     expect(mockNavigate).not.toHaveBeenCalled();
   });
 
-  it("confirms sign-out, clears query cache, invalidates router, and navigates to /login", async () => {
+  it("confirms sign-out, clears query and router caches without invalidating /app, and navigates to /login", async () => {
     mockSignOut.mockResolvedValue({ data: { success: true }, error: null });
 
     render(<SignOutDialog trigger={<button type="button">Open Modal</button>} />);
@@ -85,8 +87,9 @@ describe("SignOutDialog Component", () => {
     await waitFor(() => {
       expect(mockSignOut).toHaveBeenCalledTimes(1);
       expect(mockQueryClientClear).toHaveBeenCalledTimes(1);
-      expect(mockInvalidate).toHaveBeenCalledTimes(1);
-      expect(mockNavigate).toHaveBeenCalledWith({ to: "/login" });
+      expect(mockClearCache).toHaveBeenCalledTimes(1);
+      expect(mockInvalidate).not.toHaveBeenCalled();
+      expect(mockNavigate).toHaveBeenCalledWith({ to: "/login", replace: true });
     });
   });
 

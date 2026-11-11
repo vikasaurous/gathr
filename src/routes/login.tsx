@@ -9,7 +9,7 @@ import { getAuthErrorMessage } from "@/lib/auth/errors";
 
 export const Route = createFileRoute("/login")({
   validateSearch: (search: Record<string, unknown>) => ({
-    verified: search.verified === "true" || search.verified === true,
+    verified: search.verified === "true" || search.verified === true ? true : undefined,
     email:
       typeof search.email === "string" && search.email.trim() ? search.email.trim() : undefined,
     error:
@@ -65,8 +65,8 @@ function LoginPage() {
           setError(mapped?.message || "Sign-in failed. Check your credentials and try again.");
         }
       } else {
-        await router.invalidate();
-        await router.navigate({ to: "/app" });
+        // Navigating directly to /app runs /app's beforeLoad guard once with the new session cookies.
+        await router.navigate({ to: "/app", replace: true });
       }
     } catch {
       setError("Something went wrong. Please try again.");

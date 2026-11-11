@@ -48,10 +48,17 @@ export function HeroPreview() {
             <span className="w-20">Status</span>
           </div>
           {invs.slice(0, 7).map((i) => (
-            <div key={i.id} className="grid grid-cols-[1.6fr_1fr_1fr_auto] items-center gap-3 border-b border-border/70 py-2 text-[12px] last:border-0">
+            <div
+              key={i.id}
+              className="grid grid-cols-[1.6fr_1fr_1fr_auto] items-center gap-3 border-b border-border/70 py-2 text-[12px] last:border-0"
+            >
               <span className="truncate">{i.fields.supplier.value}</span>
-              <span className="num truncate text-[11px] text-muted-foreground">{i.fields.invoiceNumber.value}</span>
-              <span className="num text-right text-[11px]">{formatMoney(i.fields.total.value)}</span>
+              <span className="num truncate text-[11px] text-muted-foreground">
+                {i.fields.invoiceNumber.value}
+              </span>
+              <span className="num text-right text-[11px]">
+                {formatMoney(i.fields.total.value)}
+              </span>
               <span className="w-20">
                 <InvoiceStatusPill status={i.status} />
               </span>
@@ -66,10 +73,16 @@ export function HeroPreview() {
         </div>
         <div className="mt-2.5 flex gap-[2px]">
           {invs.map((i) => (
-            <span key={i.id} className="h-5 rounded-[2px] bg-primary/15" style={{ flex: i.pages.length }} />
+            <span
+              key={i.id}
+              className="h-5 rounded-[2px] bg-primary/15"
+              style={{ flex: i.pages.length }}
+            />
           ))}
         </div>
-        <p className="num mt-2 text-[10.5px] text-muted-foreground">{invs.length} invoices detected across {batch.files[0]!.pageCount} pages</p>
+        <p className="num mt-2 text-[10.5px] text-muted-foreground">
+          {invs.length} invoices detected across {batch.files[0]!.pageCount} pages
+        </p>
       </div>
     </div>
   );
@@ -93,14 +106,20 @@ export function ReviewShowcase() {
           <InvoiceStatusPill status="needs_review" />
         </div>
         <div className="mt-5 divide-y divide-border border-y border-border">
-          {FIELD_META.filter((m) => ["supplier", "gstin", "invoiceNumber", "invoiceDate", "taxableValue", "total"].includes(m.key)).map((m) => {
+          {FIELD_META.filter((m) =>
+            ["supplier", "gstin", "invoiceNumber", "invoiceDate", "taxableValue", "total"].includes(
+              m.key,
+            ),
+          ).map((m) => {
             const fv = inv.fields[m.key];
             const bad = m.key === "gstin";
             return (
               <div key={m.key} className="grid grid-cols-[110px_1fr] items-center gap-3 py-2.5">
                 <span className="text-[12px] text-muted-foreground">{m.label}</span>
                 <div className="flex items-center justify-between gap-2">
-                  <span className={`truncate text-[13px] ${m.kind !== "text" ? "num" : ""} ${bad ? "text-destructive" : ""}`}>
+                  <span
+                    className={`truncate text-[13px] ${m.kind !== "text" ? "num" : ""} ${bad ? "text-destructive" : ""}`}
+                  >
                     {m.kind === "money" ? formatMoney(fv.value) : fv.value}
                   </span>
                   <SourceTag source={fv.source} confidence={fv.confidence} />
@@ -109,12 +128,16 @@ export function ReviewShowcase() {
             );
           })}
         </div>
-        <p className="mt-4 rounded-md bg-destructive/8 px-3 py-2 text-[12px] text-destructive">GSTIN does not match the 15-character format.</p>
+        <p className="mt-4 rounded-md bg-destructive/8 px-3 py-2 text-[12px] text-destructive">
+          GSTIN does not match the 15-character format.
+        </p>
         <div className="mt-5 flex gap-2">
           <span className="inline-flex h-9 flex-1 items-center justify-center gap-2 rounded-md bg-primary text-[13px] text-primary-foreground">
             <Check className="size-4" /> Approve invoice
           </span>
-          <span className="inline-flex h-9 items-center rounded-md border border-border px-3 text-[13px]">Skip</span>
+          <span className="inline-flex h-9 items-center rounded-md border border-border px-3 text-[13px]">
+            Skip
+          </span>
         </div>
       </div>
     </div>

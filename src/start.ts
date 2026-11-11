@@ -2,11 +2,26 @@ import { createStart, createCsrfMiddleware, createMiddleware } from "@tanstack/r
 
 import { renderErrorPage } from "./lib/error-page";
 
-const errorMiddleware = createMiddleware().server(async ({ next }) => {
+export function isClientAbortError(error: unknown, signal: AbortSignal): boolean {
+  if (!signal.aborted) return false;
+  if (error === signal.reason) return true;
+  if (!(error instanceof Error)) return false;
+  const code = (error as { code?: unknown }).code;
+  return (
+    error.name === "AbortError" ||
+    code === "ERR_STREAM_PREMATURE_CLOSE" ||
+    (code === "ECONNRESET" && error.message === "aborted")
+  );
+}
+
+const errorMiddleware = createMiddleware().server(async ({ next, request }) => {
   try {
     return await next();
   } catch (error) {
     if (error != null && typeof error === "object" && "statusCode" in error) {
+      throw error;
+    }
+    if (isClientAbortError(error, request.signal)) {
       throw error;
     }
     console.error(error);
