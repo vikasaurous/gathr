@@ -46,6 +46,21 @@ vi.mock("@/lib/auth/client", () => ({
   },
 }));
 
+vi.mock("@/lib/gathr/ingestion-functions", () => ({
+  listBatchesFn: vi.fn().mockResolvedValue({
+    workspace: { id: "test-workspace-id", name: "Test Workspace" },
+    batches: [],
+  }),
+  getBatchDetailFn: vi.fn().mockResolvedValue({
+    found: false,
+    workspace: { id: "test-workspace-id", name: "Test Workspace" },
+  }),
+  getWorkspaceSummaryFn: vi.fn().mockResolvedValue({
+    id: "test-workspace-id",
+    name: "Test Workspace",
+  }),
+}));
+
 import { toClientSession, type ClientSession } from "@/lib/auth/functions";
 import type { Session } from "@/lib/auth/server";
 import { routeTree } from "@/routeTree.gen";
@@ -273,8 +288,8 @@ describe("App routing, route protection, and session deduplication", () => {
     // Real DB/server errors must NOT be classified as client aborts even if signal later aborts
     const activeController = new AbortController();
     expect(isClientAbortError(new Error("connection failed"), activeController.signal)).toBe(false);
-    expect(isClientAbortError(new Error("NeonDbError: relation missing"), abortedController.signal)).toBe(
-      false,
-    );
+    expect(
+      isClientAbortError(new Error("NeonDbError: relation missing"), abortedController.signal),
+    ).toBe(false);
   });
 });
