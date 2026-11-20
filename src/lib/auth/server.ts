@@ -38,7 +38,12 @@ export const auth = betterAuth({
   secret: process.env.BETTER_AUTH_SECRET!,
   baseURL: process.env.BETTER_AUTH_URL || "http://localhost:8080",
 
-  trustedOrigins: ["http://localhost:8080"],
+  // Allow the local dev server and any production origin configured via env var.
+  // Set PRODUCTION_ORIGIN=https://your-domain.com before deploying.
+  trustedOrigins: [
+    "http://localhost:8080",
+    ...(process.env.PRODUCTION_ORIGIN ? [process.env.PRODUCTION_ORIGIN] : []),
+  ],
 
   emailAndPassword: {
     enabled: true,

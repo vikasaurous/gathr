@@ -10,9 +10,8 @@ import {
   Settings,
 } from "lucide-react";
 import { Wordmark } from "@/components/gathr/brand";
-import { useWorkspace } from "@/lib/gathr/store";
+import { getWorkspaceSummaryFn } from "@/lib/gathr/ingestion-functions";
 import { cn } from "@/lib/utils";
-import { useSession } from "@/lib/auth/client";
 import { getSessionFn } from "@/lib/auth/functions";
 import { SignOutDialog } from "@/components/gathr/sign-out-dialog";
 
@@ -26,6 +25,7 @@ export const Route = createFileRoute("/app")({
     }
     return { session };
   },
+  loader: () => getWorkspaceSummaryFn(),
   head: () => ({
     meta: [
       { title: "Workspace — gathr" },
@@ -49,18 +49,18 @@ const NAV = [
 ] as const;
 
 function AppLayout() {
-  const ws = useWorkspace();
-  const { session: serverSession } = Route.useRouteContext();
-  const { data: clientSession } = useSession();
-  const user = clientSession?.user ?? serverSession?.user;
-  const displayName = user?.name ?? user?.email ?? "Account";
-  const initials = displayName
-    .split(" ")
-    .map((w) => w[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
-  const pending = ws.invoices.filter((i) => i.status === "needs_review").length;
+  const workspace = Route.useLoaderData();
+  const { session } = Route.useRouteContext();
+  const user = session?.user;
+  const displayName = user?.name?.trim() || user?.email || "Account";
+  const initials =
+    displayName
+      .split(/\s+/)
+      .filter(Boolean)
+      .map((w) => w[0])
+      .join("")
+      .slice(0, 2)
+      .toUpperCase() || "A";
   return (
     <div className="min-h-screen bg-background lg:grid lg:grid-cols-[232px_1fr]">
       <aside className="sticky top-0 hidden h-screen flex-col border-r border-border bg-secondary lg:flex">
@@ -81,9 +81,6 @@ function AppLayout() {
             >
               <n.icon className="size-4" strokeWidth={1.6} />
               <span className="flex-1">{n.label}</span>
-              {n.to === "/app/invoices" && pending > 0 && (
-                <span className="num text-[11px] text-warning">{pending}</span>
-              )}
             </Link>
           ))}
         </nav>
@@ -99,7 +96,7 @@ function AppLayout() {
               {initials}
             </span>
             <div className="min-w-0 flex-1">
-              <p className="truncate text-[12.5px]">{ws.workspaceName}</p>
+              <p className="truncate text-[12.5px]">{workspace.name}</p>
               <p className="truncate text-[11px] text-muted-foreground">{displayName}</p>
             </div>
             <ChevronsUpDown className="size-3.5 text-muted-foreground" />
