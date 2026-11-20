@@ -10,6 +10,9 @@
     "preview": "vite preview",
     "lint": "eslint .",
     "format": "prettier --write .",
+    "migrate": "node scripts/migrate.mjs",
+    "migrate:dry-run": "node scripts/migrate.mjs --dry-run",
+    "migrate:status": "node scripts/migrate.mjs --status",
     "test": "vitest run",
     "test:watch": "vitest"
   },
@@ -17,6 +20,7 @@
     "rolldown": "1.2.1"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1166.0",
     "@hookform/resolvers": "^5.2.2",
     "@neondatabase/serverless": "^1.2.0",
     "@radix-ui/react-accordion": "^1.2.12",

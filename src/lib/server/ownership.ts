@@ -7,6 +7,7 @@ import {
   isUuid,
   type BatchIngestionStatus,
   type DocumentUploadStatus,
+  type DocumentReviewStatus,
 } from "@/lib/gathr/ingestion-types";
 
 export interface AuthenticatedUser {
@@ -49,6 +50,8 @@ export interface OwnedDocumentRow {
   leaseExpiresAt: string | null;
   uploadStartedAt: string | null;
   status: DocumentUploadStatus;
+  /** Business review/approval state. NULL until document is uploaded. */
+  reviewStatus: DocumentReviewStatus | null;
   pageCount: number | null;
   errorMessage: string | null;
   uploadedAt: string | null;
@@ -93,6 +96,7 @@ export function mapDocumentRow(row: Record<string, unknown>): OwnedDocumentRow {
     leaseExpiresAt: toNullableIsoString(row["lease_expires_at"]),
     uploadStartedAt: toNullableIsoString(row["upload_started_at"]),
     status: String(row["status"]) as DocumentUploadStatus,
+    reviewStatus: row["review_status"] == null ? null : String(row["review_status"]) as DocumentReviewStatus,
     pageCount: row["page_count"] == null ? null : Number(row["page_count"]),
     errorMessage: typeof row["error_message"] === "string" ? row["error_message"] : null,
     uploadedAt: toNullableIsoString(row["uploaded_at"]),
@@ -239,7 +243,7 @@ export async function requireOwnedDocument(
   const rows = await sql.query(
     `SELECT "id", "workspace_id", "batch_id", "original_filename", "mime_type",
             "file_size_bytes", "storage_key", "active_attempt_id", "lease_expires_at",
-            "upload_started_at", "status", "page_count", "error_message",
+            "upload_started_at", "status", "review_status", "page_count", "error_message",
             "uploaded_at", "created_at", "updated_at"
      FROM "documents"
      WHERE "id" = $1 AND "workspace_id" = $2
