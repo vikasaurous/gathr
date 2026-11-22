@@ -22,7 +22,7 @@ import { validateInvoice } from "@/lib/gathr/validation";
 export const Route = createFileRoute("/app/invoices")({
   head: () => ({
     meta: [
-      { title: "Invoices — gathr" },
+      { title: "Invoices | gathr" },
       { name: "description", content: "Search every processed invoice in your workspace." },
       { property: "og:title", content: "Invoices — gathr" },
       { property: "og:description", content: "Search every processed invoice in your workspace." },

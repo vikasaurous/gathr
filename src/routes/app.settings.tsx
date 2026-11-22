@@ -21,7 +21,7 @@ export const Route = createFileRoute("/app/settings")({
   }),
   head: () => ({
     meta: [
-      { title: "Settings — gathr" },
+      { title: "Settings | gathr" },
       { name: "description", content: "Workspace, processing and export preferences." },
       { property: "og:title", content: "Settings — gathr" },
       { property: "og:description", content: "Workspace, processing and export preferences." },
