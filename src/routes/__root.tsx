@@ -13,7 +13,8 @@ import { useEffect, type ReactNode } from "react";
 import { Toaster } from "@/components/ui/sonner";
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
-import type { ClientSession } from "../lib/auth/functions";
+import { getSessionFn, type ClientSession } from "../lib/auth/functions";
+import { isMarketingPath } from "../lib/gathr/site-paths";
 
 function NotFoundComponent() {
   return (
@@ -79,6 +80,13 @@ export const Route = createRootRouteWithContext<{
   queryClient: QueryClient;
   session?: ClientSession;
 }>()({
+  beforeLoad: async ({ location }) => {
+    // Marketing pages share a header that must reflect the signed-in state.
+    // getSessionFn never throws (it returns null on failure), so public pages can't break.
+    if (!isMarketingPath(location.pathname)) return {};
+    const session = await getSessionFn();
+    return { session: session ?? undefined };
+  },
   head: () => ({
     // Replace these placeholders with the app's name and description when first building the app.
     // Each content route, / included, must still set its own head(). Never add og:image or

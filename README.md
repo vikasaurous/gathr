@@ -143,6 +143,7 @@ See [.env.example](./.env.example) for the complete local template.
 | `RESEND_FROM_EMAIL` | Email sender identity |
 | `RESEND_TEST_MODE` | Enables development-only recipient routing |
 | `RESEND_TEST_RECIPIENT` | Verified Resend test inbox |
+| `ADMIN_EMAILS` | Comma-separated verified emails allowed to open `/admin` (empty = admin disabled) |
 
 Keep secrets out of browser code, commits, screenshots, and issue reports. Do not use a `VITE_` prefix for server-side credentials.
 

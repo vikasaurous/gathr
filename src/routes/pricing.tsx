@@ -1,10 +1,17 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PageIntro, SiteFooter, SiteHeader } from "@/components/gathr/site-chrome";
 import { PLANS } from "@/lib/gathr/marketing-content";
+import { PLAN_IDS, isPlanId, type PlanId } from "@/lib/gathr/plans";
+import { getMyPlanFn } from "@/lib/plan/functions";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/pricing")({
+  // Signed-in visitors see their current plan; signed-out visitors get null.
+  loader: async ({ context }) => ({
+    currentPlan: context.session ? (await getMyPlanFn()).plan : null,
+  }),
   head: () => ({
     meta: [
       { title: "Pricing — gathr" },
@@ -25,6 +32,8 @@ export const Route = createFileRoute("/pricing")({
 });
 
 function Pricing() {
+  const { currentPlan } = Route.useLoaderData();
+  const currentIndex = currentPlan ? PLAN_IDS.indexOf(currentPlan) : -1;
   return (
     <div className="min-h-screen">
       <SiteHeader />
@@ -67,9 +76,12 @@ function Pricing() {
                   </li>
                 ))}
               </ul>
-              <Button variant={p.featured ? "default" : "outline"} className="mt-10" asChild>
-                <Link to="/app/new">Start with {p.name}</Link>
-              </Button>
+              <PlanAction
+                name={p.name}
+                featured={Boolean(p.featured)}
+                currentPlan={currentPlan}
+                currentIndex={currentIndex}
+              />
             </div>
           ))}
         </div>
@@ -77,4 +89,48 @@ function Pricing() {
       <SiteFooter />
     </div>
   );
+}
+
+/**
+ * Call to action for a plan card. Signed-out visitors start a batch; signed-in
+ * visitors see their current plan, and an upgrade request for higher plans
+ * (plan changes are handled by the team until billing exists).
+ */
+function PlanAction({
+  name,
+  featured,
+  currentPlan,
+  currentIndex,
+}: {
+  name: string;
+  featured: boolean;
+  currentPlan: PlanId | null;
+  currentIndex: number;
+}) {
+  const variant = featured ? "default" : "outline";
+  if (currentPlan === null) {
+    return (
+      <Button variant={variant} className="mt-10" asChild>
+        <Link to="/app/new">Start with {name}</Link>
+      </Button>
+    );
+  }
+  const id = name.toLowerCase();
+  if (!isPlanId(id)) return null;
+  if (id === currentPlan) {
+    return (
+      <Button variant="outline" className="mt-10" disabled>
+        <Check /> Current plan
+      </Button>
+    );
+  }
+  if (PLAN_IDS.indexOf(id) > currentIndex) {
+    const subject = encodeURIComponent(`Upgrade to ${name}`);
+    return (
+      <Button variant={variant} className="mt-10" asChild>
+        <a href={`mailto:hello@gathr.example?subject=${subject}`}>Upgrade to {name}</a>
+      </Button>
+    );
+  }
+  return null;
 }
