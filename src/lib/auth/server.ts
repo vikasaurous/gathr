@@ -8,7 +8,7 @@
  * Keep this file server-only. Never import it from client-side code.
  */
 import { betterAuth } from "better-auth";
-import { emailOTP } from "better-auth/plugins";
+import { emailOTP, oneTap } from "better-auth/plugins";
 import { tanstackStartCookies } from "better-auth/tanstack-start";
 import { Kysely, PostgresDialect } from "kysely";
 import { Pool, neonConfig } from "@neondatabase/serverless";
@@ -89,6 +89,9 @@ export const auth = betterAuth({
         await sendOtpEmail({ to: email, otp, type });
       },
     }),
+    // Google One Tap — server-side credential verification via /one-tap/callback.
+    // clientId is inherited from socialProviders.google (no duplication needed).
+    oneTap(),
     // Required for TanStack Start: wraps cookies so they work in SSR contexts.
     // Must be placed after other plugins in Better Auth.
     tanstackStartCookies(),

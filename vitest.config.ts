@@ -10,10 +10,7 @@ export default defineConfig({
     setupFiles: ["./src/test/setup.ts"],
     include: ["src/**/*.{test,spec}.{ts,tsx}"],
     // Phase 3–5 test files — excluded on main until their feature branches are merged
-    exclude: [
-      "src/test/document-ingestion.test.ts",
-      "src/test/document-ingestion-ui.test.tsx",
-    ],
+    exclude: ["src/test/document-ingestion.test.ts", "src/test/document-ingestion-ui.test.tsx"],
   },
   resolve: {
     alias: { "@": path.resolve(__dirname, "./src") },

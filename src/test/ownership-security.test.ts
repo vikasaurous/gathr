@@ -8,10 +8,7 @@
  * These tests use a lightweight mock SqlClient so no live DB is required.
  */
 import { describe, expect, it, vi } from "vitest";
-import {
-  requireOwnedBatch,
-  requireOwnedDocument,
-} from "@/lib/server/ownership";
+import { requireOwnedBatch, requireOwnedDocument } from "@/lib/server/ownership";
 
 // ---------------------------------------------------------------------------
 // Mock SqlClient factory
@@ -34,8 +31,8 @@ function makeSqlShouldNotBeCalled(): { query: ReturnType<typeof vi.fn> } {
 // ---------------------------------------------------------------------------
 const WORKSPACE_A = "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa";
 const WORKSPACE_B = "bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb";
-const BATCH_ID    = "11111111-1111-4111-1111-111111111111";
-const DOC_ID      = "22222222-2222-4222-2222-222222222222";
+const BATCH_ID = "11111111-1111-4111-1111-111111111111";
+const DOC_ID = "22222222-2222-4222-2222-222222222222";
 
 // ---------------------------------------------------------------------------
 // requireOwnedBatch — cross-workspace access
@@ -57,28 +54,29 @@ describe("requireOwnedBatch — cross-workspace access control", () => {
     expect(batch.id).toBe(BATCH_ID);
     expect(batch.workspaceId).toBe(WORKSPACE_A);
     // Confirm the query included both the batch ID AND the caller's workspace ID
-    expect(sql.query).toHaveBeenCalledWith(
-      expect.stringContaining("workspace_id"),
-      [BATCH_ID, WORKSPACE_A],
-    );
+    expect(sql.query).toHaveBeenCalledWith(expect.stringContaining("workspace_id"), [
+      BATCH_ID,
+      WORKSPACE_A,
+    ]);
   });
 
   it("returns 404 when the batch exists but belongs to a different workspace (cross-workspace read attempt)", async () => {
     // DB returns empty set because the WHERE clause filters by workspace_id
     const sql = makeSql([]);
 
-    await expect(
-      requireOwnedBatch(sql, WORKSPACE_A, BATCH_ID),
-    ).rejects.toMatchObject({ status: 404, code: "BATCH_NOT_FOUND" });
+    await expect(requireOwnedBatch(sql, WORKSPACE_A, BATCH_ID)).rejects.toMatchObject({
+      status: 404,
+      code: "BATCH_NOT_FOUND",
+    });
   });
 
   it("never leaks WORKSPACE_B data to a WORKSPACE_A caller even if DB row exists in another workspace", async () => {
     // Simulate an adversary who knows a valid batch ID in workspace B and calls with workspace A
     const sql = makeSql([]); // server returns nothing because workspace_id filter excludes it
 
-    await expect(
-      requireOwnedBatch(sql, WORKSPACE_A, BATCH_ID),
-    ).rejects.toMatchObject({ status: 404 });
+    await expect(requireOwnedBatch(sql, WORKSPACE_A, BATCH_ID)).rejects.toMatchObject({
+      status: 404,
+    });
 
     // The query must be called with WORKSPACE_A as the second parameter — not WORKSPACE_B
     expect(sql.query).toHaveBeenCalledWith(expect.any(String), [BATCH_ID, WORKSPACE_A]);
@@ -92,9 +90,10 @@ describe("requireOwnedBatch — forged / malformed batch IDs", () => {
   it("rejects a non-UUID batch ID without hitting the database", async () => {
     const sql = makeSqlShouldNotBeCalled();
 
-    await expect(
-      requireOwnedBatch(sql, WORKSPACE_A, "../../etc/passwd"),
-    ).rejects.toMatchObject({ status: 400, code: "INVALID_BATCH_ID" });
+    await expect(requireOwnedBatch(sql, WORKSPACE_A, "../../etc/passwd")).rejects.toMatchObject({
+      status: 400,
+      code: "INVALID_BATCH_ID",
+    });
 
     expect(sql.query).not.toHaveBeenCalled();
   });
@@ -102,9 +101,10 @@ describe("requireOwnedBatch — forged / malformed batch IDs", () => {
   it("rejects an empty string batch ID without hitting the database", async () => {
     const sql = makeSqlShouldNotBeCalled();
 
-    await expect(
-      requireOwnedBatch(sql, WORKSPACE_A, ""),
-    ).rejects.toMatchObject({ status: 400, code: "INVALID_BATCH_ID" });
+    await expect(requireOwnedBatch(sql, WORKSPACE_A, "")).rejects.toMatchObject({
+      status: 400,
+      code: "INVALID_BATCH_ID",
+    });
 
     expect(sql.query).not.toHaveBeenCalled();
   });
@@ -159,18 +159,19 @@ describe("requireOwnedDocument — cross-workspace access control", () => {
 
     expect(doc.id).toBe(DOC_ID);
     expect(doc.workspaceId).toBe(WORKSPACE_A);
-    expect(sql.query).toHaveBeenCalledWith(
-      expect.stringContaining("workspace_id"),
-      [DOC_ID, WORKSPACE_A],
-    );
+    expect(sql.query).toHaveBeenCalledWith(expect.stringContaining("workspace_id"), [
+      DOC_ID,
+      WORKSPACE_A,
+    ]);
   });
 
   it("returns 404 when the document exists but belongs to a different workspace (cross-workspace read attempt)", async () => {
     const sql = makeSql([]);
 
-    await expect(
-      requireOwnedDocument(sql, WORKSPACE_A, DOC_ID),
-    ).rejects.toMatchObject({ status: 404, code: "DOCUMENT_NOT_FOUND" });
+    await expect(requireOwnedDocument(sql, WORKSPACE_A, DOC_ID)).rejects.toMatchObject({
+      status: 404,
+      code: "DOCUMENT_NOT_FOUND",
+    });
   });
 
   it("never leaks storage_key or document content from workspace B to a workspace A caller", async () => {
@@ -178,9 +179,9 @@ describe("requireOwnedDocument — cross-workspace access control", () => {
     // Server returns nothing because WHERE workspace_id = WORKSPACE_A excludes it
     const sql = makeSql([]);
 
-    await expect(
-      requireOwnedDocument(sql, WORKSPACE_A, DOC_ID),
-    ).rejects.toMatchObject({ status: 404 });
+    await expect(requireOwnedDocument(sql, WORKSPACE_A, DOC_ID)).rejects.toMatchObject({
+      status: 404,
+    });
 
     expect(sql.query).toHaveBeenCalledWith(expect.any(String), [DOC_ID, WORKSPACE_A]);
   });
@@ -193,9 +194,10 @@ describe("requireOwnedDocument — forged / malformed document IDs", () => {
   it("rejects a non-UUID document ID without hitting the database", async () => {
     const sql = makeSqlShouldNotBeCalled();
 
-    await expect(
-      requireOwnedDocument(sql, WORKSPACE_A, "not-a-uuid"),
-    ).rejects.toMatchObject({ status: 400, code: "INVALID_DOCUMENT_ID" });
+    await expect(requireOwnedDocument(sql, WORKSPACE_A, "not-a-uuid")).rejects.toMatchObject({
+      status: 400,
+      code: "INVALID_DOCUMENT_ID",
+    });
 
     expect(sql.query).not.toHaveBeenCalled();
   });
@@ -203,9 +205,10 @@ describe("requireOwnedDocument — forged / malformed document IDs", () => {
   it("rejects an empty string document ID without hitting the database", async () => {
     const sql = makeSqlShouldNotBeCalled();
 
-    await expect(
-      requireOwnedDocument(sql, WORKSPACE_A, ""),
-    ).rejects.toMatchObject({ status: 400, code: "INVALID_DOCUMENT_ID" });
+    await expect(requireOwnedDocument(sql, WORKSPACE_A, "")).rejects.toMatchObject({
+      status: 400,
+      code: "INVALID_DOCUMENT_ID",
+    });
 
     expect(sql.query).not.toHaveBeenCalled();
   });
@@ -213,9 +216,10 @@ describe("requireOwnedDocument — forged / malformed document IDs", () => {
   it("rejects a SQL-injection-style document ID without hitting the database", async () => {
     const sql = makeSqlShouldNotBeCalled();
 
-    await expect(
-      requireOwnedDocument(sql, WORKSPACE_A, "1 OR 1=1"),
-    ).rejects.toMatchObject({ status: 400, code: "INVALID_DOCUMENT_ID" });
+    await expect(requireOwnedDocument(sql, WORKSPACE_A, "1 OR 1=1")).rejects.toMatchObject({
+      status: 400,
+      code: "INVALID_DOCUMENT_ID",
+    });
 
     expect(sql.query).not.toHaveBeenCalled();
   });
