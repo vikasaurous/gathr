@@ -121,7 +121,7 @@ export function SiteFooter() {
           <span>
             Designed and developed by{" "}
             <a
-              href="https://www.youtube.com"
+              href="#"
               target="_blank"
               rel="noopener noreferrer"
               className="group relative inline-block italic transition-colors duration-300 ease-out hover:text-foreground"

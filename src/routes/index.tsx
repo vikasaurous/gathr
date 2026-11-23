@@ -1,3 +1,5 @@
+// at the top with the other imports
+import { GoogleOneTapPrompt } from "@/components/gathr/google-one-tap";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { ArrowRight, ShieldCheck } from "lucide-react";
 import { FEATURES, STEPS } from "@/components/gathr/features-list";
@@ -9,7 +11,7 @@ import { SiteFooter, SiteHeader } from "@/components/gathr/site-chrome";
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "gathr — Paperwork, brought into order" },
+      { title: "gathr | Paperwork, brought into order" },
       {
         name: "description",
         content:
@@ -31,6 +33,7 @@ export const Route = createFileRoute("/")({
 function Home() {
   return (
     <div className="min-h-screen">
+      <GoogleOneTapPrompt />
       <SiteHeader />
       <main>
         {/* Hero */}
