@@ -36,13 +36,17 @@ vi.mock("@/lib/auth/client", () => ({
   signUp: { email: vi.fn() },
   signOut: (...args: unknown[]) => authMocks.signOut(...args),
   authClient: {
-    useSession: (...args: unknown[]) => authMocks.useSession(...args),
+    // Returns unauthenticated by default; auth-page components (login, register) may call this.
+    useSession: vi.fn(() => ({ data: null, isPending: false })),
     signIn: {
       email: (...args: unknown[]) => authMocks.signInEmail(...args),
       social: (...args: unknown[]) => authMocks.signInSocial(...args),
     },
     signOut: (...args: unknown[]) => authMocks.signOut(...args),
     listAccounts: vi.fn().mockResolvedValue({ data: [] }),
+    // One Tap stubs — resolve immediately (no prompt shown in jsdom)
+    oneTap: vi.fn().mockResolvedValue(undefined),
+    getSession: vi.fn().mockResolvedValue({ data: null }),
   },
 }));
 
@@ -273,8 +277,8 @@ describe("App routing, route protection, and session deduplication", () => {
     // Real DB/server errors must NOT be classified as client aborts even if signal later aborts
     const activeController = new AbortController();
     expect(isClientAbortError(new Error("connection failed"), activeController.signal)).toBe(false);
-    expect(isClientAbortError(new Error("NeonDbError: relation missing"), abortedController.signal)).toBe(
-      false,
-    );
+    expect(
+      isClientAbortError(new Error("NeonDbError: relation missing"), abortedController.signal),
+    ).toBe(false);
   });
 });

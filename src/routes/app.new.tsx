@@ -14,7 +14,7 @@ import type { ProcessingPreferences } from "@/lib/gathr/types";
 export const Route = createFileRoute("/app/new")({
   head: () => ({
     meta: [
-      { title: "New batch — gathr" },
+      { title: "New batch | gathr" },
       {
         name: "description",
         content: "Upload combined PDFs or individual invoices to start a new batch.",

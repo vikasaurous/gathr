@@ -5,6 +5,7 @@ import { signIn } from "@/lib/auth/client";
 import { Wordmark } from "@/components/gathr/brand";
 import { getSessionFn } from "@/lib/auth/functions";
 import { GoogleButton } from "@/components/gathr/google-button";
+import { GoogleOneTapPrompt } from "@/components/gathr/google-one-tap";
 import { getAuthErrorMessage } from "@/lib/auth/errors";
 
 export const Route = createFileRoute("/login")({
@@ -77,6 +78,8 @@ function LoginPage() {
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
+      {/* Google One Tap — fires after mount for unauthenticated users only */}
+      <GoogleOneTapPrompt />
       {/* Header */}
       <header className="border-b border-border px-6 py-5">
         <div className="mx-auto max-w-[1240px]">

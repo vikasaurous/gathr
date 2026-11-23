@@ -116,7 +116,24 @@ export function SiteFooter() {
       </div>
       <div className="mx-auto flex max-w-[1240px] justify-between border-t border-border px-6 py-6 text-xs text-muted-foreground">
         <span>© {new Date().getFullYear()} gathr</span>{" "}
-        <span className="num">v0.1 · prototype</span>
+        <span className="inline-flex items-center gap-1.5">
+          <span aria-hidden="true">&#9829;&#xFE0E;</span>
+          <span>
+            Designed and developed by{" "}
+            <a
+              href="#"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="group relative inline-block italic transition-colors duration-300 ease-out hover:text-foreground"
+            >
+              Slate.
+              <span
+                aria-hidden="true"
+                className="absolute bottom-0 left-0 h-px w-full origin-left scale-x-0 bg-current transition-transform duration-300 ease-out group-hover:scale-x-100"
+              />
+            </a>
+          </span>
+        </span>
       </div>
     </footer>
   );

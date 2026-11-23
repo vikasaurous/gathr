@@ -22,7 +22,7 @@ import type { BatchStatus } from "@/lib/gathr/types";
 export const Route = createFileRoute("/app/batches/")({
   head: () => ({
     meta: [
-      { title: "Batches — gathr" },
+      { title: "Batches | gathr" },
       { name: "description", content: "Every document batch you have processed." },
       { property: "og:title", content: "Batches — gathr" },
       { property: "og:description", content: "Every document batch you have processed." },
