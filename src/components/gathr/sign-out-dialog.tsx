@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { signOut } from "@/lib/auth/client";
+import { actions } from "@/lib/gathr/store";
 
 interface SignOutDialogProps {
   /** Trigger element to open the modal (optional if controlled) */
@@ -76,6 +77,8 @@ export function SignOutDialog({
         setLoading(false);
         return;
       }
+      // Drop in-memory workspace data so the next account on this tab never sees it.
+      actions.release();
 
       // Clear client-side query and router caches without re-running /app's guard after sign-out
       try {

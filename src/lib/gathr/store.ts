@@ -37,6 +37,7 @@ const initial = (): WorkspaceState => ({
 });
 
 let state = initial();
+let boundUserId: string | null = null;
 const listeners = new Set<() => void>();
 const serverSnapshot = initial();
 
@@ -251,6 +252,22 @@ export const actions = {
     set((s) => ({ ...s, workspaceName: n }));
   },
   reset() {
+    set(() => initial());
+  },
+  /**
+   * Ties the in-memory workspace state to one signed-in user. If a different
+   * user is bound (e.g. after a session expired and someone else signed in on
+   * the same tab), the previous user's state is discarded.
+   */
+  bindUser(userId: string) {
+    if (boundUserId !== null && boundUserId !== userId) {
+      set(() => initial());
+    }
+    boundUserId = userId;
+  },
+  /** Clears all workspace state and the user binding (call on sign-out). */
+  release() {
+    boundUserId = null;
     set(() => initial());
   },
 };

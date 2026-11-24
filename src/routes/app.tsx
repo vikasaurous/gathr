@@ -10,7 +10,7 @@ import {
   Settings,
 } from "lucide-react";
 import { Wordmark } from "@/components/gathr/brand";
-import { useWorkspace } from "@/lib/gathr/store";
+import { actions, useWorkspace } from "@/lib/gathr/store";
 import { cn } from "@/lib/utils";
 import { getSessionFn } from "@/lib/auth/functions";
 import { getMyPlanFn } from "@/lib/plan/functions";
@@ -26,6 +26,12 @@ export const Route = createFileRoute("/app")({
       throw redirect({ to: "/login" });
     }
     // Fresh on every navigation, so a plan changed by the owner shows up right away.
+    // Never show another account's in-memory workspace data (client only; the server
+    // renders from a fixed snapshot).
+    if (typeof window !== "undefined") actions.bindUser(session.user.id);
+    // Never show another account's in-memory workspace data (client only; the server
+    // renders from a fixed snapshot).
+    if (typeof window !== "undefined") actions.bindUser(session.user.id);
     const { plan } = await getMyPlanFn();
     return { session, plan };
   },

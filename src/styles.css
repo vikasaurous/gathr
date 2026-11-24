@@ -99,7 +99,7 @@
 
 :root {
   --radius: 8px;
-  --background: oklch(0.970 0.007 97.4);
+  --background: oklch(0.97 0.007 97.4);
   --foreground: oklch(0.246 0.004 128.6);
   --surface: oklch(1 0 0);
   --paper: oklch(0.985 0.004 91.4);
@@ -116,30 +116,37 @@
   --muted-foreground: oklch(0.569 0.012 112.6);
   --accent: oklch(0.948 0.008 98.9);
   --accent-foreground: oklch(0.246 0.004 128.6);
-  --destructive: oklch(0.565 0.130 26.7);
+  --destructive: oklch(0.565 0.13 26.7);
   --destructive-foreground: oklch(0.985 0.004 91.4);
   --success: oklch(0.516 0.079 163.7);
   --warning: oklch(0.659 0.105 72.6);
   --ink: oklch(0.246 0.004 128.6);
-  --ink-foreground: oklch(0.970 0.007 97.4);
-  --ink-muted: oklch(0.70 0.010 110);
+  --ink-foreground: oklch(0.97 0.007 97.4);
+  --ink-muted: oklch(0.7 0.01 110);
   --ink-border: oklch(0.36 0.006 120);
   --border: oklch(0.915 0.008 98.9);
   --input: oklch(0.915 0.008 98.9);
   --ring: oklch(0.448 0.034 168.2);
-  --shadow-sheet: 0 1px 0 oklch(0.246 0.004 128.6 / 4%), 0 24px 48px -24px oklch(0.246 0.004 128.6 / 18%);
+  --shadow-sheet:
+    0 1px 0 oklch(0.246 0.004 128.6 / 4%), 0 24px 48px -24px oklch(0.246 0.004 128.6 / 18%);
 }
 
 @layer base {
-  * { border-color: var(--color-border); }
-  html { -webkit-font-smoothing: antialiased; }
+  * {
+    border-color: var(--color-border);
+  }
+  html {
+    -webkit-font-smoothing: antialiased;
+  }
   body {
     background-color: var(--color-background);
     color: var(--color-foreground);
     font-family: var(--font-sans);
     font-feature-settings: "ss01", "cv11";
   }
-  ::selection { background: oklch(0.448 0.034 168.2 / 18%); }
+  ::selection {
+    background: oklch(0.448 0.034 168.2 / 18%);
+  }
 
   ::-webkit-scrollbar {
     width: 8px;
@@ -210,15 +217,35 @@
   box-shadow: var(--shadow-sheet);
 }
 @utility rule-fade {
-  background-image: linear-gradient(to right, var(--color-border), var(--color-border) 60%, transparent);
+  background-image: linear-gradient(
+    to right,
+    var(--color-border),
+    var(--color-border) 60%,
+    transparent
+  );
   height: 1px;
 }
 @utility paper-lines {
-  background-image: repeating-linear-gradient(to bottom, transparent 0 11px, var(--color-border) 11px 12px);
+  background-image: repeating-linear-gradient(
+    to bottom,
+    transparent 0 11px,
+    var(--color-border) 11px 12px
+  );
 }
 
-@keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
-@utility animate-rise { animation: rise 0.7s cubic-bezier(.2,.7,.2,1) both; }
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@utility animate-rise {
+  animation: rise 0.7s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
 
 /* ── Authentication form utilities ───────────────────────── */
 @utility auth-input {
@@ -231,14 +258,22 @@
   font-size: 0.875rem;
   color: var(--color-foreground);
   outline: none;
-  transition: border-color 150ms, box-shadow 150ms;
+  transition:
+    border-color 150ms,
+    box-shadow 150ms;
   font-family: var(--font-sans);
-  &::placeholder { color: var(--color-muted-foreground); opacity: 0.6; }
+  &::placeholder {
+    color: var(--color-muted-foreground);
+    opacity: 0.6;
+  }
   &:focus {
     border-color: var(--color-primary);
     box-shadow: 0 0 0 3px oklch(0.448 0.034 168.2 / 15%);
   }
-  &:disabled { opacity: 0.5; cursor: not-allowed; }
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
 }
 @utility auth-submit {
   display: block;
@@ -251,10 +286,17 @@
   font-weight: 500;
   letter-spacing: 0.01em;
   cursor: pointer;
-  transition: background-color 150ms, opacity 150ms;
+  transition:
+    background-color 150ms,
+    opacity 150ms;
   font-family: var(--font-sans);
-  &:hover:not(:disabled) { background-color: oklch(0.30 0.004 128.6); }
-  &:disabled { opacity: 0.45; cursor: not-allowed; }
+  &:hover:not(:disabled) {
+    background-color: oklch(0.3 0.004 128.6);
+  }
+  &:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
 }
 @utility google-btn {
   display: flex;
@@ -271,9 +313,22 @@
   font-weight: 500;
   letter-spacing: 0.01em;
   cursor: pointer;
-  transition: background-color 150ms, border-color 150ms, opacity 150ms;
+  transition:
+    background-color 150ms,
+    border-color 150ms,
+    opacity 150ms;
   font-family: var(--font-sans);
-  &:hover:not(:disabled) { background-color: var(--color-secondary); border-color: oklch(0.569 0.012 112.6 / 50%); }
-  &:focus-visible { outline: none; border-color: var(--color-primary); box-shadow: 0 0 0 3px oklch(0.448 0.034 168.2 / 15%); }
-  &:disabled { opacity: 0.45; cursor: not-allowed; }
+  &:hover:not(:disabled) {
+    background-color: var(--color-secondary);
+    border-color: oklch(0.569 0.012 112.6 / 50%);
+  }
+  &:focus-visible {
+    outline: none;
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 3px oklch(0.448 0.034 168.2 / 15%);
+  }
+  &:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
 }

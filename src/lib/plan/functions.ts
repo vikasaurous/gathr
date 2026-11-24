@@ -1,9 +1,8 @@
-import { neon } from "@neondatabase/serverless";
 import { createServerFn } from "@tanstack/react-start";
-import { getRequestHeaders, setResponseHeader } from "@tanstack/react-start/server";
-import { auth } from "@/lib/auth/server";
+import { setResponseHeader } from "@tanstack/react-start/server";
 import { DEFAULT_PLAN, type PlanId } from "@/lib/gathr/plans";
-import { getServerEnv } from "@/lib/server/env";
+import { resolveSession } from "@/lib/server/auth-session";
+import { getSql } from "@/lib/server/sql";
 import { fetchUserPlan } from "@/lib/server/user-plan";
 
 /**
@@ -14,18 +13,10 @@ import { fetchUserPlan } from "@/lib/server/user-plan";
 export const getMyPlanFn = createServerFn({ method: "GET" }).handler(
   async (): Promise<{ plan: PlanId }> => {
     try {
-      const session = await auth.api.getSession({ headers: getRequestHeaders() });
+      const session = await resolveSession();
       const userId = session?.user?.id;
-      const url = getServerEnv().DATABASE_URL;
-      if (!userId || !url) return { plan: DEFAULT_PLAN };
-      const sql = neon(url);
-      const plan = await fetchUserPlan(
-        {
-          query: (text, params) =>
-            sql.query(text, params ?? []) as Promise<Record<string, unknown>[]>,
-        },
-        userId,
-      );
+      if (!userId) return { plan: DEFAULT_PLAN };
+      const plan = await fetchUserPlan(getSql(), userId);
       setResponseHeader("Cache-Control", "private, no-store");
       return { plan };
     } catch (err) {

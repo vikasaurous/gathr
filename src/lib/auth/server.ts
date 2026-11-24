@@ -7,6 +7,7 @@
  *
  * Keep this file server-only. Never import it from client-side code.
  */
+import "@tanstack/react-start/server-only";
 import { betterAuth } from "better-auth";
 import { emailOTP, oneTap } from "better-auth/plugins";
 import { tanstackStartCookies } from "better-auth/tanstack-start";

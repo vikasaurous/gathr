@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import { auth, type Session } from "@/lib/auth/server";
+import { resolveSession } from "@/lib/server/auth-session";
 
 /**
  * Minimal session shape exposed to client routes and SSR hydration context.
@@ -48,9 +49,7 @@ export function toClientSession(session: Session | null | undefined): ClientSess
 export const getSessionFn = createServerFn({ method: "GET" }).handler(
   async (): Promise<ClientSession | null> => {
     try {
-      const headers = getRequestHeaders();
-      const session = await auth.api.getSession({ headers });
-      return toClientSession(session);
+      return toClientSession(await resolveSession());
     } catch (err) {
       console.error("[getSessionFn] Failed to get session:", err);
       return null;
