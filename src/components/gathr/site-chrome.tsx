@@ -1,4 +1,4 @@
-import { Link } from "@tanstack/react-router";
+import { Link, useRouteContext } from "@tanstack/react-router";
 import { Menu, X } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -13,6 +13,8 @@ const NAV = [
 
 export function SiteHeader() {
   const [open, setOpen] = useState(false);
+  const { session } = useRouteContext({ strict: false });
+  const signedIn = Boolean(session?.user);
   return (
     <header className="sticky top-0 z-40 border-b border-border bg-background/90 backdrop-blur-sm">
       <div className="mx-auto flex h-16 max-w-[1240px] items-center justify-between px-6">
@@ -30,12 +32,20 @@ export function SiteHeader() {
           ))}
         </nav>
         <div className="hidden items-center gap-2 md:flex">
-          <Button variant="ghost" size="sm" asChild>
-            <Link to="/login">Sign in</Link>
-          </Button>
-          <Button variant="ink" size="sm" asChild>
-            <Link to="/register">Get started</Link>
-          </Button>
+          {signedIn ? (
+            <Button variant="ink" size="sm" asChild>
+              <Link to="/app">Open workspace</Link>
+            </Button>
+          ) : (
+            <>
+              <Button variant="ghost" size="sm" asChild>
+                <Link to="/login">Sign in</Link>
+              </Button>
+              <Button variant="ink" size="sm" asChild>
+                <Link to="/register">Get started</Link>
+              </Button>
+            </>
+          )}
         </div>
         <button className="md:hidden" onClick={() => setOpen(!open)} aria-label="Menu">
           {open ? <X className="size-5" /> : <Menu className="size-5" />}
@@ -54,12 +64,20 @@ export function SiteHeader() {
             </Link>
           ))}
           <div className="mt-4 flex gap-2">
-            <Button variant="outline" className="flex-1" asChild>
-              <Link to="/login">Sign in</Link>
-            </Button>
-            <Button variant="ink" className="flex-1" asChild>
-              <Link to="/register">Get started</Link>
-            </Button>
+            {signedIn ? (
+              <Button variant="ink" className="flex-1" asChild>
+                <Link to="/app">Open workspace</Link>
+              </Button>
+            ) : (
+              <>
+                <Button variant="outline" className="flex-1" asChild>
+                  <Link to="/login">Sign in</Link>
+                </Button>
+                <Button variant="ink" className="flex-1" asChild>
+                  <Link to="/register">Get started</Link>
+                </Button>
+              </>
+            )}
           </div>
         </div>
       )}

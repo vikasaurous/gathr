@@ -27,6 +27,10 @@ vi.mock("@/lib/auth/functions", async (importOriginal) => {
   };
 });
 
+vi.mock("@/lib/plan/functions", () => ({
+  getMyPlanFn: vi.fn(async () => ({ plan: "free" })),
+}));
+
 vi.mock("@/lib/auth/client", () => ({
   useSession: (...args: unknown[]) => authMocks.useSession(...args),
   signIn: {

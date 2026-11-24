@@ -13,6 +13,8 @@ import { Wordmark } from "@/components/gathr/brand";
 import { useWorkspace } from "@/lib/gathr/store";
 import { cn } from "@/lib/utils";
 import { getSessionFn } from "@/lib/auth/functions";
+import { getMyPlanFn } from "@/lib/plan/functions";
+import { SidebarPlanLink } from "@/components/gathr/plan-badge";
 import { SignOutDialog } from "@/components/gathr/sign-out-dialog";
 
 export const Route = createFileRoute("/app")({
@@ -23,7 +25,9 @@ export const Route = createFileRoute("/app")({
     if (!session) {
       throw redirect({ to: "/login" });
     }
-    return { session };
+    // Fresh on every navigation, so a plan changed by the owner shows up right away.
+    const { plan } = await getMyPlanFn();
+    return { session, plan };
   },
   head: () => ({
     meta: [
@@ -49,7 +53,7 @@ const NAV = [
 
 function AppLayout() {
   const ws = useWorkspace();
-  const { session } = Route.useRouteContext();
+  const { session, plan } = Route.useRouteContext();
   const user = session?.user;
   const displayName = user?.name?.trim() || user?.email || "Account";
   const initials =
@@ -94,6 +98,7 @@ function AppLayout() {
           >
             <HelpCircle className="size-4" strokeWidth={1.6} /> Help
           </a>
+          <SidebarPlanLink plan={plan} />
           <div className="flex items-center gap-2.5 rounded-md border border-border bg-background px-2.5 py-2">
             <span className="grid size-7 place-items-center rounded-sm bg-primary font-serif text-[15px] text-primary-foreground">
               {initials}

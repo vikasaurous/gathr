@@ -11,6 +11,7 @@ import { actions, useWorkspace } from "@/lib/gathr/store";
 import type { ProcessingPreferences } from "@/lib/gathr/types";
 import { authClient } from "@/lib/auth/client";
 import { getAuthErrorMessage } from "@/lib/auth/errors";
+import { PlanCard } from "@/components/gathr/plan-card";
 
 export const Route = createFileRoute("/app/settings")({
   validateSearch: (search: Record<string, unknown>) => ({
@@ -91,6 +92,7 @@ function GoogleIcon() {
 function Settings() {
   const ws = useWorkspace();
   const search = Route.useSearch();
+  const { plan } = Route.useRouteContext();
   const sample = ws.invoices[0];
 
   const [connectedProviders, setConnectedProviders] = useState<string[]>([]);
@@ -156,6 +158,10 @@ function Settings() {
       <PageHeader eyebrow="Workspace" title="Settings">
         Changes apply immediately and last for this session.
       </PageHeader>
+
+      <Row title="Plan" hint="Your current gathr plan and what it includes.">
+        <PlanCard plan={plan} />
+      </Row>
 
       <Row title="Workspace name">
         <Input

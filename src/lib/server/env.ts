@@ -5,6 +5,7 @@ export interface ServerEnvMap {
   BETTER_AUTH_SECRET?: string | undefined;
   BETTER_AUTH_URL?: string | undefined;
   PRODUCTION_ORIGIN?: string | undefined;
+  ADMIN_EMAILS?: string | undefined;
 }
 
 type RequestWithCloudflareRuntime = Request & {
@@ -49,6 +50,7 @@ export function getServerEnv(request?: Request, directEnv?: Record<string, unkno
     BETTER_AUTH_SECRET: pick("BETTER_AUTH_SECRET"),
     BETTER_AUTH_URL: pick("BETTER_AUTH_URL"),
     PRODUCTION_ORIGIN: pick("PRODUCTION_ORIGIN"),
+    ADMIN_EMAILS: pick("ADMIN_EMAILS"),
   };
 }
 
