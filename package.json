@@ -8,6 +8,7 @@
     "build": "vite build",
     "build:dev": "vite build --mode development",
     "preview": "vite preview",
+    "check:bundle": "node scripts/check-client-bundle.mjs",
     "lint": "eslint .",
     "format": "prettier --write .",
     "test": "vitest run",

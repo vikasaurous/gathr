@@ -1,7 +1,6 @@
 import "@tanstack/react-start/server-only";
-import { getRequestHeaders } from "@tanstack/react-start/server";
-import { auth } from "@/lib/auth/server";
 import { HttpError } from "./env";
+import { resolveSession } from "./auth-session";
 
 // UUID format validation (8-4-4-4-12 hex) — inlined to avoid dependency on ingestion-types (not merged yet)
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -21,6 +20,7 @@ export interface AuthenticatedUser {
   id: string;
   name?: string | null | undefined;
   email?: string | null | undefined;
+  emailVerified?: boolean | undefined;
 }
 
 export interface AuthenticatedContext {
@@ -114,8 +114,7 @@ export function mapDocumentRow(row: Record<string, unknown>): OwnedDocumentRow {
  * Never trusts client-provided user or workspace identifiers.
  */
 export async function requireSession(request?: Request): Promise<AuthenticatedContext> {
-  const headers = request ? request.headers : getRequestHeaders();
-  const session = await auth.api.getSession({ headers });
+  const session = await resolveSession(request);
   if (!session?.user?.id || !session?.session?.id) {
     throw new HttpError(401, "Authentication required.", "UNAUTHORIZED");
   }
@@ -124,9 +123,23 @@ export async function requireSession(request?: Request): Promise<AuthenticatedCo
       id: session.user.id,
       name: session.user.name,
       email: session.user.email,
+      emailVerified: session.user.emailVerified,
     },
     sessionId: session.session.id,
   };
+}
+
+/**
+ * Like requireSession, but returns null for signed-out visitors instead of
+ * throwing. Use for pages that behave differently when signed in.
+ */
+export async function getOptionalSession(request?: Request): Promise<AuthenticatedContext | null> {
+  try {
+    return await requireSession(request);
+  } catch (error) {
+    if (error instanceof HttpError && error.status === 401) return null;
+    throw error;
+  }
 }
 
 /**
@@ -180,6 +193,23 @@ export function assertSameOrigin(request: Request): void {
   throw new HttpError(403, "Same-origin header is required.", "FORBIDDEN_ORIGIN");
 }
 
+function isMissingTableError(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) return false;
+  const code = (error as { code?: unknown }).code;
+  if (code === "42P01") return true; // Postgres: undefined_table
+  const message = (error as { message?: unknown }).message;
+  return typeof message === "string" && /relation ".*workspaces.*" does not exist/i.test(message);
+}
+
+/**
+ * Resolves (and lazily provisions) the single workspace owned by the user.
+ * Ownership comes only from the authenticated user id, never from the client.
+ *
+ * - Idempotent and race-safe: concurrent first requests converge on one row
+ *   (requires a UNIQUE constraint on workspaces.owner_user_id).
+ * - Fails clearly (503) when the workspaces table has not been migrated yet.
+ * - Fails closed (500, logged) if the returned row is not owned by the user.
+ */
 export async function getOrCreateWorkspace(
   sql: Pick<SqlClient, "query">,
   user: AuthenticatedUser,
@@ -187,18 +217,33 @@ export async function getOrCreateWorkspace(
   const trimmedName = user.name?.trim();
   const defaultName = trimmedName ? `${trimmedName.slice(0, 80)}'s Workspace` : "My Workspace";
 
-  const rows = await sql.query(
-    `INSERT INTO "workspaces" ("owner_user_id", "name")
-     VALUES ($1, $2)
-     ON CONFLICT ("owner_user_id")
-     DO UPDATE SET "name" = "workspaces"."name"
-     RETURNING "id", "owner_user_id", "name", "created_at", "updated_at"`,
-    [user.id, defaultName],
-  );
+  let rows: Record<string, unknown>[];
+  try {
+    rows = await sql.query(
+      `INSERT INTO "workspaces" ("owner_user_id", "name")
+       VALUES ($1, $2)
+       ON CONFLICT ("owner_user_id")
+       DO UPDATE SET "name" = "workspaces"."name"
+       RETURNING "id", "owner_user_id", "name", "created_at", "updated_at"`,
+      [user.id, defaultName],
+    );
+  } catch (error) {
+    if (isMissingTableError(error)) {
+      console.error("[workspace] workspaces table is missing; run the Phase 2 migrations.");
+      throw new HttpError(503, "Workspace storage is not set up.", "WORKSPACE_NOT_CONFIGURED");
+    }
+    throw error;
+  }
 
   const row = rows[0];
   if (!row) {
     throw new HttpError(500, "Failed to resolve workspace.", "WORKSPACE_ERROR");
+  }
+
+  if (String(row["owner_user_id"]) !== user.id) {
+    // Never return a workspace that the session user does not own.
+    console.error("[workspace] ownership mismatch for resolved workspace", { userId: user.id });
+    throw new HttpError(500, "Workspace ownership is invalid.", "WORKSPACE_OWNERSHIP_INVALID");
   }
 
   return {
@@ -208,6 +253,43 @@ export async function getOrCreateWorkspace(
     createdAt: toIsoString(row["created_at"]),
     updatedAt: toIsoString(row["updated_at"]),
   };
+}
+
+export interface WorkspaceContext extends AuthenticatedContext {
+  workspace: WorkspaceRow;
+}
+
+/**
+ * The single server-side entry point for "who is calling and which workspace
+ * do they own". Every protected data operation should start here and use the
+ * returned workspace.id for all ownership checks.
+ */
+export async function requireWorkspaceContext(
+  sql: Pick<SqlClient, "query">,
+  request?: Request,
+): Promise<WorkspaceContext> {
+  const ctx = await requireSession(request);
+  const workspace = await getOrCreateWorkspace(sql, ctx.user);
+  return { ...ctx, workspace };
+}
+
+const CLIENT_WORKSPACE_KEYS = new Set(["workspaceid", "workspace_id", "workspace"]);
+
+/**
+ * Rejects client-supplied workspace identifiers. The browser never chooses its
+ * workspace; call this on request bodies / query objects of protected routes.
+ */
+export function rejectClientWorkspaceId(input: unknown): void {
+  if (typeof input !== "object" || input === null) return;
+  for (const key of Object.keys(input)) {
+    if (CLIENT_WORKSPACE_KEYS.has(key.toLowerCase())) {
+      throw new HttpError(
+        400,
+        "Workspace cannot be specified by the client.",
+        "WORKSPACE_ID_NOT_ALLOWED",
+      );
+    }
+  }
 }
 
 export async function requireOwnedBatch(

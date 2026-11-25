@@ -1,9 +1,9 @@
 import "@tanstack/react-start/server-only";
-import { neon } from "@neondatabase/serverless";
-import { getRequestHeaders, setResponseHeader } from "@tanstack/react-start/server";
-import { auth } from "@/lib/auth/server";
+import { setResponseHeader } from "@tanstack/react-start/server";
 import { HttpError, getServerEnv } from "./env";
 import { isAdminUser } from "./admin-access";
+import { requireSession } from "./ownership";
+import { getSql, type SqlClient } from "./sql";
 import { DEFAULT_PLAN, isPlanId, type PlanId } from "@/lib/gathr/plans";
 
 export const ADMIN_PAGE_SIZE = 25;
@@ -43,10 +43,7 @@ export interface AdminUserPage {
   query: string;
 }
 
-/** Minimal SQL interface (matches neon().query) so the queries are unit-testable. */
-export interface AdminSql {
-  query(text: string, params?: unknown[]): Promise<Record<string, unknown>[]>;
-}
+export type AdminSql = SqlClient;
 
 /**
  * Re-verifies the session AND admin allowlist on EVERY call.
@@ -55,30 +52,17 @@ export interface AdminSql {
  * existence of the admin area is not revealed.
  */
 export async function requireAdmin(): Promise<AdminContext> {
-  const session = await auth.api.getSession({ headers: getRequestHeaders() });
-  const user = session?.user;
-  if (!user?.id || !session?.session?.id) {
-    throw new HttpError(401, "Authentication required.", "UNAUTHORIZED");
-  }
+  const { user } = await requireSession();
   if (!isAdminUser(user, getServerEnv().ADMIN_EMAILS)) {
     console.warn("[admin] access denied", { userId: user.id });
     throw new HttpError(404, "Not found.", "NOT_FOUND");
   }
   // Admin data must never be cached by browsers or intermediaries.
   setResponseHeader("Cache-Control", "private, no-store");
-  return { userId: user.id, email: user.email };
+  return { userId: user.id, email: user.email ?? "" };
 }
 
-export function getAdminSql(): AdminSql {
-  const url = getServerEnv().DATABASE_URL;
-  if (!url) {
-    throw new HttpError(500, "Database is not configured.", "DB_NOT_CONFIGURED");
-  }
-  const sql = neon(url);
-  return {
-    query: (text, params) => sql.query(text, params ?? []) as Promise<Record<string, unknown>[]>,
-  };
-}
+export const getAdminSql = (): AdminSql => getSql();
 
 function toIso(value: unknown): string {
   if (value instanceof Date) return value.toISOString();

@@ -1,8 +1,8 @@
 import { createServerFn } from "@tanstack/react-start";
-import { getRequestHeaders, setResponseHeader } from "@tanstack/react-start/server";
+import { setResponseHeader } from "@tanstack/react-start/server";
 import { z } from "zod";
 import { PLAN_IDS } from "@/lib/gathr/plans";
-import { auth } from "@/lib/auth/server";
+import { resolveSession } from "@/lib/server/auth-session";
 import { getServerEnv } from "@/lib/server/env";
 import { isAdminUser } from "@/lib/server/admin-access";
 import {
@@ -22,7 +22,7 @@ import {
 export const getAdminAccessFn = createServerFn({ method: "GET" }).handler(
   async (): Promise<{ isAdmin: boolean }> => {
     try {
-      const session = await auth.api.getSession({ headers: getRequestHeaders() });
+      const session = await resolveSession();
       const isAdmin = isAdminUser(session?.user, getServerEnv().ADMIN_EMAILS);
       setResponseHeader("Cache-Control", "private, no-store");
       return { isAdmin };
