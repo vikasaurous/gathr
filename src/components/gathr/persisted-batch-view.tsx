@@ -2,24 +2,40 @@ import { Link } from "@tanstack/react-router";
 import {
   AlertCircle,
   ArrowLeft,
+  CheckCircle2,
   Download,
   ExternalLink,
   FileText,
+  Lock,
   Plus,
   RefreshCw,
   RotateCcw,
+  Trash2,
   Upload,
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { EmptyState } from "@/components/gathr/common";
-import { DocumentUploadStatusPill, IngestionBatchStatusPill } from "@/components/gathr/status";
+import { toast } from "sonner";
+import { ConfirmDialog, EmptyState } from "@/components/gathr/common";
+import {
+  DocumentUploadStatusPill,
+  IngestionBatchStatusPill,
+  Pill,
+} from "@/components/gathr/status";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { formatBytes, formatDate } from "@/lib/gathr/format";
 import {
   checkPdfFileMetadata,
   hasValidPdfHeader,
   type BatchDetailResponse,
+  type FinalizeBatchResponse,
   type PersistedBatch,
   type PersistedDocument,
 } from "@/lib/gathr/ingestion-types";
@@ -29,15 +45,26 @@ import {
   type DocumentUploadEntry,
 } from "@/lib/gathr/upload-orchestrator";
 
-export function PersistedBatchView({ batchId }: { batchId: string }) {
+export function PersistedBatchView({
+  batchId,
+  onDeleted,
+}: {
+  batchId: string;
+  onDeleted?: (() => void) | undefined;
+}) {
   const [state, setState] = useState<
     | { status: "loading" }
     | { status: "not_found" }
+    | { status: "deleted" }
     | { status: "error"; message: string }
     | { status: "ready"; data: BatchDetailResponse }
   >({ status: "loading" });
 
   const [reattachErrors, setReattachErrors] = useState<Record<string, string>>({});
+  const [lifecycleError, setLifecycleError] = useState<string | null>(null);
+  const [isFinalizing, setIsFinalizing] = useState(false);
+  const [confirmIncompleteFinalize, setConfirmIncompleteFinalize] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   const uploadEntries = useSyncExternalStore(
@@ -159,11 +186,123 @@ export function PersistedBatchView({ batchId }: { batchId: string }) {
     uploadOrchestrator.uploadFileForDocument(batchId, doc.id, pickedFile, handleServerUpdate);
   }
 
+  async function handleFinalizeBatch(allowIncomplete = false) {
+    if (isFinalizing || isDeleting) return;
+    setIsFinalizing(true);
+    setLifecycleError(null);
+    setConfirmIncompleteFinalize(false);
+
+    try {
+      const res = await fetch(`/api/batches/${encodeURIComponent(batchId)}/finalize`, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ allowIncomplete }),
+      });
+
+      if (!res.ok) {
+        let message = "Could not finalize batch.";
+        let code: string | undefined;
+        try {
+          const body = (await res.json()) as { error?: unknown; code?: unknown };
+          if (typeof body.error === "string" && body.error) message = body.error;
+          if (typeof body.code === "string") code = body.code;
+        } catch {
+          // Keep safe fallback message
+        }
+
+        if (res.status === 409 && code === "BATCH_HAS_UNRESOLVED_DOCUMENTS" && !allowIncomplete) {
+          setConfirmIncompleteFinalize(true);
+          setIsFinalizing(false);
+          return;
+        }
+
+        setLifecycleError(message);
+        setIsFinalizing(false);
+        return;
+      }
+
+      const data = (await res.json()) as FinalizeBatchResponse;
+      setState({
+        status: "ready",
+        data: {
+          batch: data.batch,
+          documents: data.documents,
+        },
+      });
+      toast.success(
+        data.batch.status === "partial"
+          ? "Batch finalized with partial uploads"
+          : data.batch.status === "failed"
+            ? "Batch finalized (no documents uploaded)"
+            : "Batch finalized",
+      );
+      setIsFinalizing(false);
+    } catch {
+      setLifecycleError("Network error while finalizing batch. Please retry.");
+      setIsFinalizing(false);
+    }
+  }
+
+  async function handleDeleteBatch() {
+    if (isDeleting || isFinalizing) return;
+    setIsDeleting(true);
+    setLifecycleError(null);
+
+    try {
+      uploadOrchestrator.cancelBatchLocalUploads(batchId);
+      const res = await fetch(`/api/batches/${encodeURIComponent(batchId)}`, {
+        method: "DELETE",
+        credentials: "same-origin",
+      });
+      if (!res.ok) {
+        let message = "Could not delete batch.";
+        try {
+          const body = (await res.json()) as { error?: unknown };
+          if (typeof body.error === "string" && body.error) message = body.error;
+        } catch {
+          // Keep safe fallback message
+        }
+        setLifecycleError(message);
+        setIsDeleting(false);
+        return;
+      }
+
+      toast.success("Batch deleted");
+      if (onDeleted) {
+        onDeleted();
+      } else {
+        setState({ status: "deleted" });
+      }
+    } catch {
+      setLifecycleError("Network error while deleting batch. Please retry.");
+      setIsDeleting(false);
+    }
+  }
+
   if (state.status === "loading") {
     return (
       <div className="mx-auto max-w-[1040px] px-5 py-10 md:px-10 md:py-14">
         <p className="eyebrow">Batch</p>
         <p className="mt-4 text-[14px] text-muted-foreground">Loading batch from workspace…</p>
+      </div>
+    );
+  }
+
+  if (state.status === "deleted") {
+    return (
+      <div className="mx-auto max-w-[1040px] px-5 py-10 md:px-10 md:py-14">
+        <EmptyState
+          title="Batch deleted."
+          action={
+            <Button variant="outline" asChild>
+              <Link to="/app/batches">Back to batches</Link>
+            </Button>
+          }
+        >
+          This batch has been removed from your workspace and any stored files are queued for
+          cleanup.
+        </EmptyState>
       </div>
     );
   }
@@ -208,12 +347,16 @@ export function PersistedBatchView({ batchId }: { batchId: string }) {
   }
 
   const { batch, documents } = state.data;
+  const isFinalized = Boolean(batch.finalizedAt);
   const totalBytes = documents.reduce((sum, doc) => sum + doc.fileSizeBytes, 0);
   const uploadedCount = documents.filter((doc) => doc.status === "uploaded").length;
   const failedCount = documents.filter((doc) => doc.status === "failed").length;
   const activeLocalCount = documents.filter((doc) => {
     const entry = uploadEntries.get(doc.id);
-    return entry && (entry.phase === "uploading" || entry.phase === "queued");
+    return (
+      entry &&
+      (entry.phase === "uploading" || entry.phase === "queued" || entry.phase === "cancelling")
+    );
   }).length;
   const pendingOnly =
     documents.length > 0 &&
@@ -236,10 +379,43 @@ export function PersistedBatchView({ batchId }: { batchId: string }) {
           <p className="num mt-1.5 text-[11.5px] text-muted-foreground">
             {batch.id} · {documents.length} PDF document{documents.length === 1 ? "" : "s"} ·{" "}
             {formatBytes(totalBytes)} · Created {formatDate(batch.createdAt)}
+            {batch.finalizedAt ? ` · Finalized ${formatDate(batch.finalizedAt)}` : ""}
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2.5">
           <IngestionBatchStatusPill status={batch.status} pendingOnly={pendingOnly} />
+          {isFinalized && (
+            <Pill tone="neutral">
+              <Lock className="size-3" /> Finalized
+            </Pill>
+          )}
+          {!isFinalized && (
+            <Button
+              type="button"
+              variant="outline"
+              disabled={activeLocalCount > 0 || isFinalizing || isDeleting}
+              onClick={() => void handleFinalizeBatch(false)}
+            >
+              <CheckCircle2 className="size-4" /> {isFinalizing ? "Finalizing…" : "Finalize batch"}
+            </Button>
+          )}
+          <ConfirmDialog
+            trigger={
+              <Button
+                type="button"
+                variant="outline"
+                disabled={isDeleting || isFinalizing}
+                aria-label={`Delete batch ${batch.name}`}
+              >
+                <Trash2 className="size-4" /> {isDeleting ? "Deleting…" : "Delete batch"}
+              </Button>
+            }
+            title="Delete this batch?"
+            description="This removes the batch and its document records from your workspace and schedules any uploaded or in-flight PDF objects for permanent storage cleanup."
+            confirmLabel="Delete batch"
+            destructive
+            onConfirm={() => void handleDeleteBatch()}
+          />
           <Button variant="ink" asChild>
             <Link to="/app/new">
               <Plus className="size-4" /> New batch
@@ -248,17 +424,33 @@ export function PersistedBatchView({ batchId }: { batchId: string }) {
         </div>
       </div>
 
+      {lifecycleError && (
+        <div
+          role="alert"
+          className="mt-4 flex items-start gap-2.5 rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-[13px] text-destructive"
+        >
+          <AlertCircle className="mt-0.5 size-4 shrink-0" />
+          <p>{lifecycleError}</p>
+        </div>
+      )}
+
       <div className="mt-6 flex items-start justify-between gap-3 rounded-md border border-border bg-surface px-4 py-3 text-[13px] text-muted-foreground">
         <div className="flex items-start gap-2.5">
           <AlertCircle className="mt-0.5 size-4 shrink-0 text-primary" strokeWidth={1.6} />
           <p>
             {activeLocalCount > 0
               ? `Uploading documents to private storage (${uploadedCount} of ${documents.length} confirmed · max ${MAX_CONCURRENT_UPLOADS} concurrent uploads).`
-              : batch.status === "uploaded"
-                ? `All ${documents.length} PDF document${documents.length === 1 ? "" : "s"} stored privately in your workspace. Retrieval requires your authenticated session.`
-                : batch.status === "partial"
-                  ? `${uploadedCount} of ${documents.length} documents stored; ${failedCount} failed and can be retried below.`
-                  : "Batch saved to your workspace. Each PDF is stored and tracked as an individual private document (no merging, splitting, or invoice content reading has occurred)."}
+              : isFinalized
+                ? batch.status === "partial"
+                  ? `Batch finalized as partial: ${uploadedCount} of ${documents.length} uploaded, ${failedCount} failed. Sealed against further upload attempts (not all documents succeeded).`
+                  : batch.status === "failed"
+                    ? "Batch finalized with 0 uploaded documents. Sealed against further upload attempts."
+                    : `Batch finalized: all ${documents.length} PDF document${documents.length === 1 ? "" : "s"} stored privately in your workspace and sealed against further upload mutations.`
+                : batch.status === "uploaded"
+                  ? `All ${documents.length} PDF document${documents.length === 1 ? "" : "s"} stored privately in your workspace. Finalize batch when ready to seal intake.`
+                  : batch.status === "partial"
+                    ? `${uploadedCount} of ${documents.length} documents stored; ${failedCount} failed and can be retried before finalizing.`
+                    : "Batch saved to your workspace. Each PDF is stored and tracked as an individual private document (no merging, splitting, or invoice content reading has occurred)."}
           </p>
         </div>
         <span className="num shrink-0 text-[11.5px] text-foreground">
@@ -278,30 +470,43 @@ export function PersistedBatchView({ batchId }: { batchId: string }) {
               const entry: DocumentUploadEntry | undefined = uploadEntries.get(doc.id);
               const isLocallyUploading = entry?.phase === "uploading";
               const isLocallyQueued = entry?.phase === "queued";
+              const isLocallyCancelling = entry?.phase === "cancelling";
+              const isCancelUnconfirmed = entry?.phase === "cancel_unconfirmed";
               const effectiveStatus =
                 doc.status === "uploaded"
                   ? "uploaded"
                   : isLocallyUploading
                     ? "uploading"
-                    : entry?.phase === "failed" || entry?.phase === "cancelled"
+                    : isLocallyCancelling ||
+                        isCancelUnconfirmed ||
+                        entry?.phase === "failed" ||
+                        entry?.phase === "cancelled"
                       ? "failed"
                       : doc.status;
               const inlineError =
                 reattachErrors[doc.id] ??
                 (doc.status !== "uploaded" ? (entry?.errorMessage ?? doc.errorMessage) : null);
               const canRetryInMemory =
+                !isFinalized &&
                 doc.status !== "uploaded" &&
                 !isLocallyUploading &&
                 !isLocallyQueued &&
+                !isLocallyCancelling &&
                 Boolean(entry?.file);
               const canAttachAndUpload =
+                !isFinalized &&
                 doc.status !== "uploaded" &&
                 doc.status !== "uploading" &&
                 !isLocallyUploading &&
                 !isLocallyQueued &&
+                !isLocallyCancelling &&
                 !entry?.file;
               const isStrandedServerUpload =
-                doc.status === "uploading" && !isLocallyUploading && !isLocallyQueued;
+                !isFinalized &&
+                doc.status === "uploading" &&
+                !isLocallyUploading &&
+                !isLocallyQueued &&
+                !isLocallyCancelling;
 
               return (
                 <li
@@ -352,10 +557,36 @@ export function PersistedBatchView({ batchId }: { batchId: string }) {
                               batchId,
                               doc.id,
                               handleServerUpdate,
+                              doc.activeAttemptId,
                             )
                           }
                         >
                           <X className="size-3.5" /> Cancel
+                        </Button>
+                      )}
+
+                      {isLocallyCancelling && (
+                        <Button type="button" variant="outline" size="sm" disabled>
+                          Cancelling…
+                        </Button>
+                      )}
+
+                      {isCancelUnconfirmed && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          aria-label={`Confirm server cancellation for ${doc.originalFilename}`}
+                          onClick={() =>
+                            void uploadOrchestrator.cancelStuckServerUpload(
+                              batchId,
+                              doc.id,
+                              handleServerUpdate,
+                              doc.activeAttemptId,
+                            )
+                          }
+                        >
+                          <X className="size-3.5" /> Confirm cancel
                         </Button>
                       )}
 
@@ -370,6 +601,7 @@ export function PersistedBatchView({ batchId }: { batchId: string }) {
                               batchId,
                               doc.id,
                               handleServerUpdate,
+                              doc.activeAttemptId,
                             )
                           }
                         >
@@ -484,6 +716,37 @@ export function PersistedBatchView({ batchId }: { batchId: string }) {
           </ul>
         </section>
       )}
+
+      <Dialog open={confirmIncompleteFinalize} onOpenChange={setConfirmIncompleteFinalize}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="font-serif text-2xl font-normal">
+              Finalize incomplete batch?
+            </DialogTitle>
+            <DialogDescription className="text-[13px] text-muted-foreground">
+              Some documents in this batch are still pending upload. Finalizing now marks unuploaded
+              documents as failed and seals the batch against future upload retries.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setConfirmIncompleteFinalize(false)}
+            >
+              Keep uploading
+            </Button>
+            <Button
+              type="button"
+              variant="ink"
+              disabled={isFinalizing}
+              onClick={() => void handleFinalizeBatch(true)}
+            >
+              Finalize anyway
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

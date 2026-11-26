@@ -12,6 +12,7 @@ import {
   sanitizeDownloadFilename,
   toAsciiHeaderFilename,
   type CancelUploadResponse,
+  type HeartbeatUploadResponse,
   type PersistedBatch,
   type PersistedDocument,
   type UploadDocumentResponse,
@@ -24,6 +25,7 @@ import {
 } from "./b2-storage";
 import { toPublicBatch, toPublicDocument } from "./batches";
 import { HttpError } from "./env";
+import { logLifecycleEvent } from "./lifecycle-log";
 import {
   assertSameOrigin,
   mapBatchRow,
@@ -64,64 +66,107 @@ function rethrowDbError(operation: string, error: unknown): never {
   throw error;
 }
 
-async function refreshBatchStatus(
+async function enqueueOrphanOutboxFallback(
+  sql: Pick<SqlClient, "query">,
+  params: {
+    storageKey: string;
+    bucketName: string;
+    workspaceId: string;
+    batchId: string;
+    documentId: string;
+    reason: CleanupReason;
+  },
+): Promise<void> {
+  if (!isSafeStorageKey(params.storageKey) || !params.bucketName.trim()) return;
+  await sql.query(
+    `INSERT INTO "storage_cleanup_outbox" (
+       "storage_key", "bucket_name", "workspace_id", "batch_id", "document_id", "reason"
+     )
+     VALUES ($1::text, $2::text, $3::uuid, $4::uuid, $5::uuid, $6::text)
+     ON CONFLICT ("storage_key") WHERE "status" IN ('pending', 'processing')
+     DO NOTHING`,
+    [
+      params.storageKey,
+      params.bucketName.trim(),
+      params.workspaceId,
+      params.batchId,
+      params.documentId,
+      params.reason,
+    ],
+  );
+}
+
+/**
+ * Recomputes a batch's server-authoritative status from persisted document
+ * outcomes while holding `FOR UPDATE` on the parent batch row. Never alters a
+ * batch that has already been sealed (`finalized_at IS NOT NULL`).
+ */
+export async function refreshBatchStatus(
   sql: Pick<SqlClient, "query">,
   workspaceId: string,
   batchId: string,
 ): Promise<OwnedBatchRow> {
-  for (let attempt = 0; attempt < 4; attempt++) {
-    const stateRows = await sql.query(
-      `SELECT
-         b."id",
-         b."workspace_id",
-         b."name",
-         b."status",
-         b."updated_at"::text AS "updated_at_raw",
+  const rows = await sql.query(
+    `WITH batch_lock AS (
+       SELECT "id", "workspace_id", "name", "status", "finalized_at", "created_at", "updated_at"
+       FROM "batches"
+       WHERE "id" = $1::uuid AND "workspace_id" = $2::uuid
+       FOR UPDATE
+     ),
+     counts AS (
+       SELECT
+         bl."id",
+         bl."workspace_id",
+         bl."finalized_at",
          COUNT(d."id")::int AS "total_count",
          COUNT(d."id") FILTER (WHERE d."status" IN ('pending_upload', 'uploading'))::int AS "active_count",
          COUNT(d."id") FILTER (WHERE d."status" = 'uploaded')::int AS "uploaded_count"
-       FROM "batches" b
+       FROM batch_lock bl
        LEFT JOIN "documents" d
-         ON d."batch_id" = b."id" AND d."workspace_id" = b."workspace_id"
-       WHERE b."id" = $1::uuid AND b."workspace_id" = $2::uuid
-       GROUP BY b."id"`,
-      [batchId, workspaceId],
-    );
+         ON d."batch_id" = bl."id" AND d."workspace_id" = bl."workspace_id"
+       GROUP BY bl."id", bl."workspace_id", bl."finalized_at"
+     ),
+     updated AS (
+       UPDATE "batches" b
+       SET
+         "status" = CASE
+           WHEN c."active_count" > 0 THEN 'uploading'
+           WHEN c."total_count" > 0 AND c."uploaded_count" = c."total_count" THEN 'uploaded'
+           WHEN c."uploaded_count" > 0 THEN 'partial'
+           ELSE 'failed'
+         END,
+         "updated_at" = clock_timestamp()
+       FROM counts c
+       WHERE b."id" = c."id"
+         AND b."workspace_id" = c."workspace_id"
+         AND c."finalized_at" IS NULL
+       RETURNING b."id", b."workspace_id", b."name", b."status", b."finalized_at", b."created_at", b."updated_at"
+     )
+     SELECT
+       COALESCE(u."id", bl."id") AS "id",
+       COALESCE(u."workspace_id", bl."workspace_id") AS "workspace_id",
+       COALESCE(u."name", bl."name") AS "name",
+       COALESCE(u."status", bl."status") AS "status",
+       COALESCE(u."finalized_at", bl."finalized_at") AS "finalized_at",
+       COALESCE(u."created_at", bl."created_at") AS "created_at",
+       COALESCE(u."updated_at", bl."updated_at") AS "updated_at"
+     FROM batch_lock bl
+     LEFT JOIN updated u ON u."id" = bl."id"`,
+    [batchId, workspaceId],
+  );
 
-    const row = stateRows[0];
-    if (!row) {
-      throw new HttpError(404, "Batch not found.", "BATCH_NOT_FOUND");
-    }
-
-    const totalCount = Number(row["total_count"] ?? 0);
-    const activeCount = Number(row["active_count"] ?? 0);
-    const uploadedCount = Number(row["uploaded_count"] ?? 0);
-    const nextStatus =
-      activeCount > 0 ? "uploading" : computeBatchFinalStatus(totalCount, uploadedCount);
-
-    const updatedRows = await sql.query(
-      `UPDATE "batches"
-       SET "status" = $3::text, "updated_at" = clock_timestamp()
-       WHERE "id" = $1::uuid
-         AND "workspace_id" = $2::uuid
-         AND "updated_at"::text = $4::text
-       RETURNING "id", "workspace_id", "name", "status", "created_at", "updated_at"`,
-      [batchId, workspaceId, nextStatus, String(row["updated_at_raw"])],
-    );
-
-    const updated = updatedRows[0];
-    if (updated) {
-      return mapBatchRow(updated);
-    }
+  const row = rows[0];
+  if (!row) {
+    throw new HttpError(404, "Batch not found.", "BATCH_NOT_FOUND");
   }
-
-  return requireOwnedBatch(sql, workspaceId, batchId);
+  return mapBatchRow(row);
 }
 
 /**
  * Atomically claims an exclusive upload attempt on a workspace-owned document.
- * Concurrent unexpired attempts fail with 409; expired attempts are superseded
- * and their attempt-specific key is durably queued in storage_cleanup_outbox.
+ * Acquires locks in canonical order (`batches -> documents`) so finalization
+ * and upload claims cannot race into an invalid state. Sealed batches reject
+ * claims with `409 BATCH_FINALIZED`.
  */
 export async function claimDocumentUploadAttempt(
   sql: Pick<SqlClient, "query">,
@@ -165,13 +210,24 @@ export async function claimDocumentUploadAttempt(
 
   try {
     const rows = await sql.query(
-      `WITH prev AS (
+      `WITH batch_lock AS (
+         SELECT b."id", b."workspace_id", b."finalized_at"
+         FROM "batches" b
+         INNER JOIN "documents" d
+           ON d."batch_id" = b."id" AND d."workspace_id" = b."workspace_id"
+         WHERE d."id" = $1::uuid AND d."workspace_id" = $2::uuid
+         FOR UPDATE OF b
+       ),
+       prev AS (
          SELECT
-           "id", "workspace_id", "batch_id", "file_size_bytes",
-           "status", "active_attempt_id", "lease_expires_at"
-         FROM "documents"
-         WHERE "id" = $1::uuid AND "workspace_id" = $2::uuid
-         FOR UPDATE
+           d."id", d."workspace_id", d."batch_id", d."file_size_bytes",
+           d."status", d."active_attempt_id", d."lease_expires_at",
+           bl."finalized_at" AS "batch_finalized_at"
+         FROM "documents" d
+         INNER JOIN batch_lock bl
+           ON bl."id" = d."batch_id" AND bl."workspace_id" = d."workspace_id"
+         WHERE d."id" = $1::uuid AND d."workspace_id" = $2::uuid
+         FOR UPDATE OF d
        ),
        claimed AS (
          UPDATE "documents" d
@@ -185,6 +241,7 @@ export async function claimDocumentUploadAttempt(
          FROM prev p
          WHERE d."id" = p."id"
            AND d."workspace_id" = p."workspace_id"
+           AND p."batch_finalized_at" IS NULL
            AND d."file_size_bytes" = $5::bigint
            AND (
              d."status" IN ('pending_upload', 'failed')
@@ -216,11 +273,24 @@ export async function claimDocumentUploadAttempt(
          ON CONFLICT ("storage_key") WHERE "status" IN ('pending', 'processing')
          DO NOTHING
          RETURNING "id"
+       ),
+       batch_uploading AS (
+         UPDATE "batches" b
+         SET
+           "status" = 'uploading',
+           "updated_at" = clock_timestamp()
+         FROM claimed c
+         WHERE b."id" = c."batch_id"
+           AND b."workspace_id" = c."workspace_id"
+           AND b."finalized_at" IS NULL
+         RETURNING b."id"
        )
        SELECT
          p."id" AS "prev_id",
+         p."batch_id" AS "prev_batch_id",
          p."status" AS "prev_status",
          p."file_size_bytes" AS "prev_file_size_bytes",
+         p."batch_finalized_at",
          c."id" AS "claimed_id",
          c."workspace_id",
          c."batch_id",
@@ -249,6 +319,23 @@ export async function claimDocumentUploadAttempt(
     }
 
     if (!row["claimed_id"]) {
+      const batchId = String(row["prev_batch_id"]);
+      if (row["batch_finalized_at"] != null) {
+        logLifecycleEvent("info", {
+          operation: "claim_upload",
+          outcome: "rejected",
+          batchId,
+          documentId,
+          attemptId,
+          failureCategory: "batch_finalized",
+        });
+        throw new HttpError(
+          409,
+          "This batch has been finalized and no longer accepts uploads.",
+          "BATCH_FINALIZED",
+        );
+      }
+
       const prevStatus = String(row["prev_status"]);
       const expectedSize = Number(row["prev_file_size_bytes"]);
       if (prevStatus === "uploaded") {
@@ -265,6 +352,14 @@ export async function claimDocumentUploadAttempt(
           "SIZE_MISMATCH",
         );
       }
+      logLifecycleEvent("info", {
+        operation: "claim_upload",
+        outcome: "rejected",
+        batchId,
+        documentId,
+        attemptId,
+        failureCategory: "conflict",
+      });
       throw new HttpError(
         409,
         "An upload attempt is already active for this document.",
@@ -276,10 +371,17 @@ export async function claimDocumentUploadAttempt(
       ...row,
       id: row["claimed_id"],
     });
-    await refreshBatchStatus(sql, workspaceId, document.batchId);
 
     const storageKey = buildStorageKey({
       workspaceId: document.workspaceId,
+      batchId: document.batchId,
+      documentId: document.id,
+      attemptId,
+    });
+
+    logLifecycleEvent("info", {
+      operation: "claim_upload",
+      outcome: "succeeded",
       batchId: document.batchId,
       documentId: document.id,
       attemptId,
@@ -297,10 +399,155 @@ export async function claimDocumentUploadAttempt(
 }
 
 /**
+ * Renews an active upload attempt's lease if and only if the caller owns the
+ * matching `active_attempt_id`, its lease has not already expired, and the
+ * parent batch has not been finalized.
+ */
+export async function heartbeatDocumentUploadAttempt(
+  sql: Pick<SqlClient, "query">,
+  params: {
+    workspaceId: string;
+    documentId: string;
+    attemptId: string;
+    leaseSeconds?: number | undefined;
+  },
+): Promise<HeartbeatUploadResponse> {
+  const {
+    workspaceId,
+    documentId,
+    attemptId,
+    leaseSeconds = DEFAULT_UPLOAD_LEASE_SECONDS,
+  } = params;
+
+  if (!isUuid(workspaceId)) {
+    throw new HttpError(400, "Invalid workspace identifier.", "INVALID_WORKSPACE_ID");
+  }
+  if (!isUuid(documentId)) {
+    throw new HttpError(400, "Invalid document identifier.", "INVALID_DOCUMENT_ID");
+  }
+  if (!isUuid(attemptId)) {
+    throw new HttpError(400, "Invalid upload attempt identifier.", "INVALID_ATTEMPT");
+  }
+  if (!Number.isSafeInteger(leaseSeconds) || leaseSeconds < 1 || leaseSeconds > 3600) {
+    throw new HttpError(400, "Invalid upload lease duration.", "INVALID_LEASE");
+  }
+
+  try {
+    const rows = await sql.query(
+      `WITH batch_lock AS (
+         SELECT b."id", b."workspace_id", b."finalized_at"
+         FROM "batches" b
+         INNER JOIN "documents" d
+           ON d."batch_id" = b."id" AND d."workspace_id" = b."workspace_id"
+         WHERE d."id" = $1::uuid AND d."workspace_id" = $2::uuid
+         FOR UPDATE OF b
+       ),
+       target AS (
+         SELECT
+           d."id", d."workspace_id", d."batch_id", d."status",
+           d."active_attempt_id", d."lease_expires_at",
+           bl."finalized_at" AS "batch_finalized_at"
+         FROM "documents" d
+         INNER JOIN batch_lock bl
+           ON bl."id" = d."batch_id" AND bl."workspace_id" = d."workspace_id"
+         WHERE d."id" = $1::uuid AND d."workspace_id" = $2::uuid
+         FOR UPDATE OF d
+       ),
+       renewed AS (
+         UPDATE "documents" d
+         SET
+           "lease_expires_at" = clock_timestamp() + ($4::integer * interval '1 second'),
+           "updated_at" = clock_timestamp()
+         FROM target t
+         WHERE d."id" = t."id"
+           AND d."workspace_id" = t."workspace_id"
+           AND t."batch_finalized_at" IS NULL
+           AND d."status" = 'uploading'
+           AND d."active_attempt_id" = $3::uuid
+           AND (d."lease_expires_at" IS NULL OR d."lease_expires_at" > clock_timestamp())
+         RETURNING d."id", d."batch_id", d."lease_expires_at"
+       )
+       SELECT
+         t."id" AS "target_id",
+         t."batch_id",
+         t."status" AS "target_status",
+         t."active_attempt_id" AS "target_attempt_id",
+         t."lease_expires_at" AS "target_lease_expires_at",
+         t."batch_finalized_at",
+         r."id" AS "renewed_id",
+         r."lease_expires_at" AS "renewed_lease_expires_at"
+       FROM target t
+       LEFT JOIN renewed r ON r."id" = t."id"`,
+      [documentId, workspaceId, attemptId, leaseSeconds],
+    );
+
+    const row = rows[0];
+    if (!row) {
+      throw new HttpError(404, "Document not found.", "DOCUMENT_NOT_FOUND");
+    }
+
+    const batchId = String(row["batch_id"]);
+    if (!row["renewed_id"]) {
+      if (row["batch_finalized_at"] != null) {
+        throw new HttpError(
+          409,
+          "This batch has been finalized and no longer accepts uploads.",
+          "BATCH_FINALIZED",
+        );
+      }
+      if (row["target_status"] === "uploaded") {
+        throw new HttpError(
+          409,
+          "This document has already been uploaded.",
+          "DOCUMENT_ALREADY_UPLOADED",
+        );
+      }
+      if (
+        row["target_status"] === "uploading" &&
+        row["target_attempt_id"] === attemptId &&
+        row["target_lease_expires_at"] != null
+      ) {
+        logLifecycleEvent("info", {
+          operation: "heartbeat_upload",
+          outcome: "rejected",
+          batchId,
+          documentId,
+          attemptId,
+          failureCategory: "lease_expired",
+        });
+        throw new HttpError(409, "Upload lease has already expired.", "UPLOAD_LEASE_EXPIRED");
+      }
+      logLifecycleEvent("info", {
+        operation: "heartbeat_upload",
+        outcome: "rejected",
+        batchId,
+        documentId,
+        attemptId,
+        failureCategory: "attempt_superseded",
+      });
+      throw new HttpError(409, "Upload attempt is no longer active.", "UPLOAD_ATTEMPT_SUPERSEDED");
+    }
+
+    const leaseExpiresAt =
+      row["renewed_lease_expires_at"] instanceof Date
+        ? row["renewed_lease_expires_at"].toISOString()
+        : String(row["renewed_lease_expires_at"]);
+
+    return {
+      documentId,
+      attemptId,
+      leaseExpiresAt,
+    };
+  } catch (error) {
+    rethrowDbError("heartbeatDocumentUploadAttempt", error);
+  }
+}
+
+/**
  * Commits a completed B2 object as the document's canonical storage reference
- * only if the caller still owns the current active attempt and its lease has
- * not expired. Stale/late attempts never overwrite canonical state and are
- * queued in storage_cleanup_outbox for deletion.
+ * only if the caller still owns the current active attempt, its lease has
+ * not expired, and the parent batch is not finalized. Stale/late attempts
+ * never overwrite canonical state and are queued in `storage_cleanup_outbox`.
  */
 export async function commitDocumentUploadAttempt(
   sql: Pick<SqlClient, "query">,
@@ -323,12 +570,24 @@ export async function commitDocumentUploadAttempt(
 
   try {
     const rows = await sql.query(
-      `WITH target AS (
+      `WITH batch_lock AS (
+         SELECT b."id", b."workspace_id", b."finalized_at"
+         FROM "batches" b
+         INNER JOIN "documents" d
+           ON d."batch_id" = b."id" AND d."workspace_id" = b."workspace_id"
+         WHERE d."id" = $1::uuid AND d."workspace_id" = $2::uuid
+         FOR UPDATE OF b
+       ),
+       target AS (
          SELECT
-           "id", "workspace_id", "batch_id", "status", "active_attempt_id", "lease_expires_at"
-         FROM "documents"
-         WHERE "id" = $1::uuid AND "workspace_id" = $2::uuid
-         FOR UPDATE
+           d."id", d."workspace_id", d."batch_id", d."status",
+           d."active_attempt_id", d."lease_expires_at",
+           bl."finalized_at" AS "batch_finalized_at"
+         FROM "documents" d
+         INNER JOIN batch_lock bl
+           ON bl."id" = d."batch_id" AND bl."workspace_id" = d."workspace_id"
+         WHERE d."id" = $1::uuid AND d."workspace_id" = $2::uuid
+         FOR UPDATE OF d
        ),
        committed AS (
          UPDATE "documents" d
@@ -343,6 +602,7 @@ export async function commitDocumentUploadAttempt(
          FROM target t
          WHERE d."id" = t."id"
            AND d."workspace_id" = t."workspace_id"
+           AND t."batch_finalized_at" IS NULL
            AND d."active_attempt_id" = $3::uuid
            AND d."status" = 'uploading'
            AND (d."lease_expires_at" IS NULL OR d."lease_expires_at" > clock_timestamp())
@@ -362,6 +622,7 @@ export async function commitDocumentUploadAttempt(
            "updated_at" = clock_timestamp()
          FROM target t
          WHERE NOT EXISTS (SELECT 1 FROM committed)
+           AND t."batch_finalized_at" IS NULL
            AND d."id" = t."id"
            AND d."workspace_id" = t."workspace_id"
            AND d."active_attempt_id" = $3::uuid
@@ -390,6 +651,7 @@ export async function commitDocumentUploadAttempt(
          t."batch_id" AS "target_batch_id",
          t."status" AS "target_status",
          t."active_attempt_id" AS "target_attempt_id",
+         t."batch_finalized_at",
          es."id" AS "expired_self_id",
          c."id" AS "committed_id",
          c."workspace_id",
@@ -420,14 +682,46 @@ export async function commitDocumentUploadAttempt(
     }
 
     if (!row["committed_id"]) {
+      const batchId = String(row["target_batch_id"]);
       if (row["expired_self_id"]) {
-        await refreshBatchStatus(sql, workspaceId, String(row["target_batch_id"]));
+        await refreshBatchStatus(sql, workspaceId, batchId);
+        logLifecycleEvent("warn", {
+          operation: "commit_upload",
+          outcome: "rejected",
+          batchId,
+          documentId,
+          attemptId,
+          failureCategory: "lease_expired",
+        });
         throw new HttpError(
           409,
           "Upload lease expired before confirmation.",
           "UPLOAD_LEASE_EXPIRED",
         );
       }
+      if (row["batch_finalized_at"] != null) {
+        logLifecycleEvent("warn", {
+          operation: "commit_upload",
+          outcome: "rejected",
+          batchId,
+          documentId,
+          attemptId,
+          failureCategory: "batch_finalized",
+        });
+        throw new HttpError(
+          409,
+          "This batch was finalized before upload confirmation.",
+          "BATCH_FINALIZED",
+        );
+      }
+      logLifecycleEvent("warn", {
+        operation: "commit_upload",
+        outcome: "rejected",
+        batchId,
+        documentId,
+        attemptId,
+        failureCategory: "attempt_superseded",
+      });
       throw new HttpError(
         409,
         "Upload attempt is no longer active and cannot commit.",
@@ -440,6 +734,13 @@ export async function commitDocumentUploadAttempt(
       id: row["committed_id"],
     });
     const batch = await refreshBatchStatus(sql, workspaceId, document.batchId);
+    logLifecycleEvent("info", {
+      operation: "commit_upload",
+      outcome: "succeeded",
+      batchId: document.batchId,
+      documentId: document.id,
+      attemptId,
+    });
     return { document, batch };
   } catch (error) {
     rethrowDbError("commitDocumentUploadAttempt", error);
@@ -461,6 +762,7 @@ export async function failDocumentUploadAttempt(
     errorMessage: string;
     enqueueCleanup: boolean;
     cleanupReason?: CleanupReason | undefined;
+    batchId?: string | undefined;
   },
 ): Promise<void> {
   const {
@@ -472,17 +774,30 @@ export async function failDocumentUploadAttempt(
     errorMessage,
     enqueueCleanup,
     cleanupReason = "upload_failed",
+    batchId,
   } = params;
 
   const safeMessage = errorMessage.trim().slice(0, 300) || "Upload failed.";
 
   try {
     const rows = await sql.query(
-      `WITH target AS (
-         SELECT "id", "workspace_id", "batch_id", "status", "active_attempt_id"
-         FROM "documents"
-         WHERE "id" = $1::uuid AND "workspace_id" = $2::uuid
-         FOR UPDATE
+      `WITH batch_lock AS (
+         SELECT b."id", b."workspace_id", b."finalized_at"
+         FROM "batches" b
+         INNER JOIN "documents" d
+           ON d."batch_id" = b."id" AND d."workspace_id" = b."workspace_id"
+         WHERE d."id" = $1::uuid AND d."workspace_id" = $2::uuid
+         FOR UPDATE OF b
+       ),
+       target AS (
+         SELECT
+           d."id", d."workspace_id", d."batch_id", d."status", d."active_attempt_id",
+           bl."finalized_at" AS "batch_finalized_at"
+         FROM "documents" d
+         INNER JOIN batch_lock bl
+           ON bl."id" = d."batch_id" AND bl."workspace_id" = d."workspace_id"
+         WHERE d."id" = $1::uuid AND d."workspace_id" = $2::uuid
+         FOR UPDATE OF d
        ),
        failed AS (
          UPDATE "documents" d
@@ -495,6 +810,7 @@ export async function failDocumentUploadAttempt(
          FROM target t
          WHERE d."id" = t."id"
            AND d."workspace_id" = t."workspace_id"
+           AND t."batch_finalized_at" IS NULL
            AND d."active_attempt_id" = $3::uuid
            AND d."status" = 'uploading'
          RETURNING d."id", d."batch_id"
@@ -518,6 +834,7 @@ export async function failDocumentUploadAttempt(
        )
        SELECT
          t."batch_id",
+         t."batch_finalized_at",
          f."id" AS "failed_id"
        FROM target t
        LEFT JOIN failed f ON f."id" = t."id"`,
@@ -534,9 +851,27 @@ export async function failDocumentUploadAttempt(
     );
 
     const row = rows[0];
-    if (row?.["failed_id"]) {
+    if (!row && enqueueCleanup && batchId && isUuid(batchId)) {
+      await enqueueOrphanOutboxFallback(sql, {
+        storageKey,
+        bucketName,
+        workspaceId,
+        batchId,
+        documentId,
+        reason: "orphaned_attempt",
+      });
+    } else if (row?.["failed_id"] && row["batch_finalized_at"] == null) {
       await refreshBatchStatus(sql, workspaceId, String(row["batch_id"]));
     }
+
+    logLifecycleEvent("info", {
+      operation: "fail_upload",
+      outcome: "succeeded",
+      batchId: row ? String(row["batch_id"]) : (batchId ?? null),
+      documentId,
+      attemptId,
+      reason: cleanupReason,
+    });
   } catch (error) {
     rethrowDbError("failDocumentUploadAttempt", error);
   }
@@ -561,12 +896,23 @@ export async function cancelDocumentUploadAttempt(
 
   try {
     const rows = await sql.query(
-      `WITH target AS (
+      `WITH batch_lock AS (
+         SELECT b."id", b."workspace_id", b."finalized_at"
+         FROM "batches" b
+         INNER JOIN "documents" d
+           ON d."batch_id" = b."id" AND d."workspace_id" = b."workspace_id"
+         WHERE d."id" = $1::uuid AND d."workspace_id" = $2::uuid
+         FOR UPDATE OF b
+       ),
+       target AS (
          SELECT
-           "id", "workspace_id", "batch_id", "status", "active_attempt_id"
-         FROM "documents"
-         WHERE "id" = $1::uuid AND "workspace_id" = $2::uuid
-         FOR UPDATE
+           d."id", d."workspace_id", d."batch_id", d."status", d."active_attempt_id",
+           bl."finalized_at" AS "batch_finalized_at"
+         FROM "documents" d
+         INNER JOIN batch_lock bl
+           ON bl."id" = d."batch_id" AND bl."workspace_id" = d."workspace_id"
+         WHERE d."id" = $1::uuid AND d."workspace_id" = $2::uuid
+         FOR UPDATE OF d
        ),
        cancelled AS (
          UPDATE "documents" d
@@ -579,6 +925,7 @@ export async function cancelDocumentUploadAttempt(
          FROM target t
          WHERE d."id" = t."id"
            AND d."workspace_id" = t."workspace_id"
+           AND t."batch_finalized_at" IS NULL
            AND d."status" = 'uploading'
            AND ($3::uuid IS NULL OR d."active_attempt_id" = $3::uuid)
          RETURNING
@@ -607,6 +954,9 @@ export async function cancelDocumentUploadAttempt(
        )
        SELECT
          t."id" AS "target_id",
+         t."batch_id" AS "target_batch_id",
+         t."batch_finalized_at",
+         t."active_attempt_id" AS "target_attempt_id",
          c."id" AS "cancelled_id"
        FROM target t
        LEFT JOIN cancelled c ON c."id" = t."id"`,
@@ -617,6 +967,13 @@ export async function cancelDocumentUploadAttempt(
     if (!row) {
       throw new HttpError(404, "Document not found.", "DOCUMENT_NOT_FOUND");
     }
+    if (row["batch_finalized_at"] != null) {
+      throw new HttpError(
+        409,
+        "This batch has been finalized and can no longer be modified.",
+        "BATCH_FINALIZED",
+      );
+    }
 
     const cancelled = Boolean(row["cancelled_id"]);
     const doc = await requireOwnedDocument(sql, workspaceId, documentId);
@@ -624,10 +981,21 @@ export async function cancelDocumentUploadAttempt(
       ? await refreshBatchStatus(sql, workspaceId, doc.batchId)
       : await requireOwnedBatch(sql, workspaceId, doc.batchId);
 
+    logLifecycleEvent("info", {
+      operation: "cancel_upload",
+      outcome: "succeeded",
+      batchId: doc.batchId,
+      documentId: doc.id,
+      attemptId:
+        typeof row["target_attempt_id"] === "string" ? row["target_attempt_id"] : attemptId,
+      reason: cancelled ? "server_cancelled" : `noop_${doc.status}`,
+    });
+
     return {
       document: toPublicDocument(doc),
       batch: toPublicBatch(batch),
       cancelled,
+      serverConfirmed: true,
     };
   } catch (error) {
     rethrowDbError("cancelDocumentUploadAttempt", error);
@@ -650,6 +1018,7 @@ async function preparePdfUploadStream(
   body: ReadableStream<Uint8Array>,
   expectedSizeBytes: number,
   onStreamError: (err: HttpError) => void,
+  onChunkForwarded?: () => void,
 ): Promise<PreparedPdfUploadStream> {
   const reader = body.getReader();
   const initialChunks: Uint8Array[] = [];
@@ -740,6 +1109,7 @@ async function preparePdfUploadStream(
           streamedBytes += chunk.byteLength;
           forwardedBytes += chunk.byteLength;
           controller.enqueue(chunk);
+          onChunkForwarded?.();
           if (initialCursor >= initialChunks.length && initialDone) {
             if (streamedBytes !== expectedSizeBytes) {
               failStream(
@@ -802,6 +1172,7 @@ async function preparePdfUploadStream(
 
             forwardedBytes += value.byteLength;
             controller.enqueue(value);
+            onChunkForwarded?.();
             return;
           }
         } catch (err) {
@@ -887,7 +1258,15 @@ export async function uploadDocumentStream(
 
   const { workspace } = await requireWorkspaceContext(deps.sql, request);
   const existing = await requireOwnedDocument(deps.sql, workspace.id, documentId);
+  const existingBatch = await requireOwnedBatch(deps.sql, workspace.id, existing.batchId);
 
+  if (existingBatch.finalizedAt !== null) {
+    throw new HttpError(
+      409,
+      "This batch has been finalized and no longer accepts uploads.",
+      "BATCH_FINALIZED",
+    );
+  }
   if (existing.status === "uploaded") {
     throw new HttpError(
       409,
@@ -916,12 +1295,40 @@ export async function uploadDocumentStream(
 
   const b2 = deps.b2 ?? getB2StorageClient(request);
 
+  const effectiveLeaseSeconds = deps.leaseSeconds ?? DEFAULT_UPLOAD_LEASE_SECONDS;
+  const heartbeatIntervalMs = Math.max(5_000, Math.floor(effectiveLeaseSeconds * 500));
+  let lastHeartbeatAt = Date.now();
+  let inflightHeartbeat: Promise<void> | null = null;
+  let activeClaim: InternalUploadClaim | null = null;
+
   const upstreamController = new AbortController();
   let streamValidationError: HttpError | null = null;
-  const prepared = await preparePdfUploadStream(request.body, declaredSizeBytes, (err) => {
-    streamValidationError = err;
-    upstreamController.abort(err);
-  });
+  const prepared = await preparePdfUploadStream(
+    request.body,
+    declaredSizeBytes,
+    (err) => {
+      streamValidationError = err;
+      upstreamController.abort(err);
+    },
+    () => {
+      if (!activeClaim || inflightHeartbeat) return;
+      const now = Date.now();
+      if (now - lastHeartbeatAt < heartbeatIntervalMs) return;
+      lastHeartbeatAt = now;
+      const claimRef = activeClaim;
+      inflightHeartbeat = heartbeatDocumentUploadAttempt(deps.sql, {
+        workspaceId: workspace.id,
+        documentId,
+        attemptId: claimRef.attemptId,
+        leaseSeconds: effectiveLeaseSeconds,
+      })
+        .then(() => undefined)
+        .catch(() => undefined)
+        .finally(() => {
+          inflightHeartbeat = null;
+        });
+    },
+  );
 
   let claim: InternalUploadClaim;
   try {
@@ -932,6 +1339,7 @@ export async function uploadDocumentStream(
       declaredSizeBytes,
       leaseSeconds: deps.leaseSeconds,
     });
+    activeClaim = claim;
   } catch (err) {
     await prepared.releaseReader();
     throw err;
@@ -957,6 +1365,9 @@ export async function uploadDocumentStream(
     });
     uploadCompleted = true;
   } catch (error) {
+    if (inflightHeartbeat) {
+      await inflightHeartbeat;
+    }
     const activeStreamErr = streamValidationError ?? prepared.getStreamError();
     const wasAbortedByClient = request.signal.aborted && !activeStreamErr;
     const failureMessage = wasAbortedByClient
@@ -974,6 +1385,7 @@ export async function uploadDocumentStream(
       errorMessage: failureMessage,
       enqueueCleanup: prepared.hasForwardedBytes(),
       cleanupReason: "upload_failed",
+      batchId: claim.document.batchId,
     }).catch((failErr) => {
       console.error("[documents] failed to persist upload failure state", failErr);
     });
@@ -995,6 +1407,10 @@ export async function uploadDocumentStream(
     request.signal.removeEventListener("abort", onRequestAbort);
   }
 
+  if (inflightHeartbeat) {
+    await inflightHeartbeat;
+  }
+
   try {
     const committed = await commitDocumentUploadAttempt(deps.sql, {
       workspaceId: workspace.id,
@@ -1008,6 +1424,17 @@ export async function uploadDocumentStream(
       batch: toPublicBatch(committed.batch),
     };
   } catch (error) {
+    if (uploadCompleted && error instanceof HttpError && error.status === 404) {
+      await enqueueOrphanOutboxFallback(deps.sql, {
+        storageKey: claim.storageKey,
+        bucketName: b2.bucketName,
+        workspaceId: workspace.id,
+        batchId: claim.document.batchId,
+        documentId,
+        reason: "orphaned_attempt",
+      }).catch(() => {});
+      throw error;
+    }
     if (error instanceof HttpError && error.status === 409) {
       throw error;
     }
@@ -1021,6 +1448,7 @@ export async function uploadDocumentStream(
         errorMessage: "Upload could not be confirmed in the database.",
         enqueueCleanup: true,
         cleanupReason: "orphaned_attempt",
+        batchId: claim.document.batchId,
       }).catch(() => {});
     }
     throw error;

@@ -11,7 +11,14 @@ import {
  */
 export const MAX_CONCURRENT_UPLOADS = 2;
 
-export type ClientUploadPhase = "queued" | "uploading" | "uploaded" | "failed" | "cancelled";
+export type ClientUploadPhase =
+  | "queued"
+  | "uploading"
+  | "uploaded"
+  | "failed"
+  | "cancelling"
+  | "cancelled"
+  | "cancel_unconfirmed";
 
 export interface DocumentUploadEntry {
   documentId: string;
@@ -35,7 +42,10 @@ export interface UploadTransport {
     file: File;
     onProgress: (loadedBytes: number, totalBytes: number) => void;
   }): UploadRequestHandle;
-  cancelOnServer(documentId: string): Promise<CancelUploadResponse | null>;
+  cancelOnServer(
+    documentId: string,
+    attemptId?: string | null | undefined,
+  ): Promise<CancelUploadResponse | null>;
 }
 
 export class ClientUploadError extends Error {
@@ -137,13 +147,16 @@ export function createXhrUploadTransport(): UploadTransport {
       };
     },
 
-    async cancelOnServer(documentId: string): Promise<CancelUploadResponse | null> {
+    async cancelOnServer(
+      documentId: string,
+      attemptId?: string | null | undefined,
+    ): Promise<CancelUploadResponse | null> {
       try {
         const res = await fetch(`/api/documents/${encodeURIComponent(documentId)}/cancel`, {
           method: "POST",
           credentials: "same-origin",
           headers: { "Content-Type": "application/json" },
-          body: "{}",
+          body: attemptId ? JSON.stringify({ attemptId }) : "{}",
         });
         if (!res.ok) return null;
         return (await res.json()) as CancelUploadResponse;
@@ -279,11 +292,20 @@ export function createUploadOrchestrator(options?: {
           err instanceof Error && err.message ? err.message : "Upload failed. Please retry.";
 
         if (current) {
-          setEntry(batchId, {
-            ...current,
-            phase: isCancelled ? "cancelled" : "failed",
-            errorMessage: message,
-          });
+          const preserveCancelState =
+            isCancelled &&
+            (current.phase === "cancelling" ||
+              current.phase === "cancelled" ||
+              current.phase === "cancel_unconfirmed");
+          if (!preserveCancelState) {
+            setEntry(batchId, {
+              ...current,
+              phase: isCancelled ? "cancel_unconfirmed" : "failed",
+              errorMessage: isCancelled
+                ? "Browser upload aborted, awaiting server cancellation confirmation."
+                : message,
+            });
+          }
         }
 
         if (!isCancelled && typeof globalThis.fetch === "function") {
@@ -438,7 +460,13 @@ export function createUploadOrchestrator(options?: {
     ): Promise<boolean> {
       const existing = batches.get(batchId)?.get(documentId);
       if (!existing) return false;
-      if (existing.phase === "uploading" || existing.phase === "queued") return false;
+      if (
+        existing.phase === "uploading" ||
+        existing.phase === "queued" ||
+        existing.phase === "cancelling"
+      ) {
+        return false;
+      }
       if (onServerUpdate) {
         batchCallbacks.set(batchId, onServerUpdate);
       }
@@ -468,6 +496,14 @@ export function createUploadOrchestrator(options?: {
           });
           return true;
         }
+        if (released.batch.finalizedAt) {
+          setEntry(batchId, {
+            ...existing,
+            phase: "failed",
+            errorMessage: "Batch is finalized and no longer accepts retries.",
+          });
+          return false;
+        }
       }
 
       enqueuePending(batchId, documentId);
@@ -479,50 +515,133 @@ export function createUploadOrchestrator(options?: {
       batchId: string,
       documentId: string,
       onServerUpdate?: ServerUpdateCallback,
-    ): Promise<void> {
+      attemptId?: string | null | undefined,
+    ): Promise<CancelUploadResponse | null> {
       if (onServerUpdate) {
         batchCallbacks.set(batchId, onServerUpdate);
       }
-      const serverState = await transport.cancelOnServer(documentId);
+      const serverState = await transport.cancelOnServer(documentId, attemptId);
       if (serverState) {
+        const current = batches.get(batchId)?.get(documentId);
+        if (current) {
+          setEntry(batchId, {
+            ...current,
+            phase: serverState.document.status === "uploaded" ? "uploaded" : "cancelled",
+            loadedBytes:
+              serverState.document.status === "uploaded" ? current.file.size : current.loadedBytes,
+            progressPercent:
+              serverState.document.status === "uploaded" ? 100 : current.progressPercent,
+            errorMessage:
+              serverState.document.status === "uploaded"
+                ? null
+                : "Cancellation confirmed by server.",
+          });
+        }
         batchCallbacks.get(batchId)?.({
           document: serverState.document,
           batch: serverState.batch,
         });
       }
+      return serverState;
     },
 
     async cancelDocument(
       batchId: string,
       documentId: string,
       onServerUpdate?: ServerUpdateCallback,
+      attemptId?: string | null | undefined,
     ): Promise<void> {
       if (onServerUpdate) {
         batchCallbacks.set(batchId, onServerUpdate);
       }
+      const wasQueued = pendingQueue.some(
+        (item) => item.batchId === batchId && item.documentId === documentId,
+      );
       removeFromPending(documentId);
 
       const handle = activeHandles.get(documentId);
       const existing = batches.get(batchId)?.get(documentId);
+
+      if (wasQueued && !handle) {
+        if (existing && existing.phase !== "uploaded") {
+          setEntry(batchId, {
+            ...existing,
+            phase: "cancelled",
+            errorMessage: "Queued upload cancelled before transfer began.",
+          });
+        }
+        drainQueue();
+        return;
+      }
+
       if (existing && existing.phase !== "uploaded") {
         setEntry(batchId, {
           ...existing,
-          phase: "cancelled",
-          errorMessage: "Upload cancelled.",
+          phase: handle ? "cancelling" : "cancelling",
+          errorMessage: "Browser upload aborted — awaiting server cancellation confirmation…",
         });
       }
 
       if (handle) {
         handle.abort();
-        const serverState = await transport.cancelOnServer(documentId);
+        const serverState = await transport.cancelOnServer(documentId, attemptId);
+        const latest = batches.get(batchId)?.get(documentId);
         if (serverState) {
+          if (latest) {
+            setEntry(batchId, {
+              ...latest,
+              phase: serverState.document.status === "uploaded" ? "uploaded" : "cancelled",
+              loadedBytes:
+                serverState.document.status === "uploaded" ? latest.file.size : latest.loadedBytes,
+              progressPercent:
+                serverState.document.status === "uploaded" ? 100 : latest.progressPercent,
+              errorMessage:
+                serverState.document.status === "uploaded"
+                  ? null
+                  : "Cancellation confirmed by server.",
+            });
+          }
           batchCallbacks.get(batchId)?.({
             document: serverState.document,
             batch: serverState.batch,
           });
+        } else if (latest && latest.phase !== "uploaded") {
+          setEntry(batchId, {
+            ...latest,
+            phase: "cancel_unconfirmed",
+            errorMessage:
+              "Browser upload aborted, but server cancellation could not be confirmed yet.",
+          });
         }
       }
       drainQueue();
+    },
+
+    cancelBatchLocalUploads(batchId: string): void {
+      for (let i = pendingQueue.length - 1; i >= 0; i--) {
+        if (pendingQueue[i]?.batchId === batchId) {
+          pendingQueue.splice(i, 1);
+        }
+      }
+      const map = batches.get(batchId);
+      if (map) {
+        for (const [docId, entry] of map.entries()) {
+          const handle = activeHandles.get(docId);
+          if (handle) {
+            handle.abort();
+            activeHandles.delete(docId);
+          }
+          if (entry.phase !== "uploaded") {
+            map.set(docId, {
+              ...entry,
+              phase: "cancelled",
+              errorMessage: "Upload cancelled.",
+            });
+          }
+        }
+        invalidateBatchSnapshot(batchId);
+        emit();
+      }
     },
 
     unregisterCallback(batchId: string): void {

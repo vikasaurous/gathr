@@ -682,3 +682,48 @@ describe("Phase 3 migration 006 — batch idempotency", () => {
     await pg.close();
   }, 60_000);
 });
+
+describe("Phase 5 migration 007 — batch finalization & cleanup lease index", () => {
+  it("enforces ck_batches_finalized_status and creates idx_storage_cleanup_processing_lease", async () => {
+    const pg = new PGlite();
+    const res = await runMigrations({
+      db: pgliteAdapter(pg),
+      dir: MIGRATIONS_DIR,
+      mode: "apply",
+    });
+    expect(res.ok).toBe(true);
+    expect(res.appliedNow).toContain("007_batch_lifecycle.sql");
+
+    await pg.exec(`insert into "user"(id,name,email) values ('u5','P5','p5@x.com')`);
+    const ws = (
+      await rowsOf(pg, `insert into workspaces(owner_user_id,name) values ('u5','W5') returning id`)
+    )[0]!.id;
+
+    // Sealed batches cannot remain in 'uploading' status
+    await fails(
+      pg,
+      `insert into batches(workspace_id,name,status,finalized_at) values ($1,'b-bad','uploading',now())`,
+      [ws],
+      "23514",
+    );
+
+    // Sealed batches allow 'uploaded', 'partial', and 'failed'
+    await expect(
+      pg.query(
+        `insert into batches(workspace_id,name,status,finalized_at) values
+         ($1,'b-ok','uploaded',now()),
+         ($1,'b-part','partial',now()),
+         ($1,'b-fail','failed',now())`,
+        [ws],
+      ),
+    ).resolves.toBeDefined();
+
+    const idx = await rowsOf(
+      pg,
+      `select indexname from pg_indexes where tablename='storage_cleanup_outbox' and indexname='idx_storage_cleanup_processing_lease'`,
+    );
+    expect(idx).toHaveLength(1);
+
+    await pg.close();
+  }, 60_000);
+});
