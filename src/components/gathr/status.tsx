@@ -1,4 +1,5 @@
 import { cn } from "@/lib/utils";
+import type { BatchIngestionStatus, DocumentUploadStatus } from "@/lib/gathr/ingestion-types";
 import type { BatchStatus, FieldSource, InvoiceStatus } from "@/lib/gathr/types";
 
 const TONE = {
@@ -41,6 +42,40 @@ export function BatchStatusPill({ status }: { status: BatchStatus }) {
   return (
     <Pill tone={m[status][0]} pulse={status === "processing"}>
       {m[status][1]}
+    </Pill>
+  );
+}
+
+export function IngestionBatchStatusPill({
+  status,
+  pendingOnly,
+}: {
+  status: BatchIngestionStatus;
+  pendingOnly?: boolean;
+}) {
+  const labelMap = {
+    uploading: ["accent", pendingOnly ? "Pending upload" : "Uploading"],
+    uploaded: ["success", "Uploaded"],
+    partial: ["warning", "Partial"],
+    failed: ["error", "Failed"],
+  } as const;
+  return (
+    <Pill tone={labelMap[status][0]} pulse={status === "uploading" && !pendingOnly}>
+      {labelMap[status][1]}
+    </Pill>
+  );
+}
+
+export function DocumentUploadStatusPill({ status }: { status: DocumentUploadStatus }) {
+  const labelMap = {
+    pending_upload: ["neutral", "Pending upload"],
+    uploading: ["accent", "Uploading"],
+    uploaded: ["success", "Uploaded"],
+    failed: ["error", "Upload failed"],
+  } as const;
+  return (
+    <Pill tone={labelMap[status][0]} pulse={status === "uploading"}>
+      {labelMap[status][1]}
     </Pill>
   );
 }

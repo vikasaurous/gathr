@@ -26,9 +26,11 @@ import { ConfirmDialog, EmptyState } from "@/components/gathr/common";
 import { DocumentPage } from "@/components/gathr/document-page";
 import { ExportDialog } from "@/components/gathr/export-dialog";
 import { InvoiceFields } from "@/components/gathr/invoice-fields";
+import { PersistedBatchView } from "@/components/gathr/persisted-batch-view";
 import { BatchStatusPill, DemoBadge, InvoiceStatusPill } from "@/components/gathr/status";
 import { buildFileName } from "@/lib/gathr/export";
 import { formatMoney, pageRange } from "@/lib/gathr/format";
+import { isUuid } from "@/lib/gathr/ingestion-types";
 import { actions, getWorkspaceState, useWorkspace } from "@/lib/gathr/store";
 import { FIELD_META, type FieldKey, type Invoice, type ValidationIssue } from "@/lib/gathr/types";
 import {
@@ -84,6 +86,9 @@ function Review() {
   const { id } = Route.useParams();
   const search = Route.useSearch();
   const navigate = useNavigate({ from: Route.fullPath });
+  if (isUuid(id)) {
+    return <PersistedBatchView batchId={id} />;
+  }
   return (
     <BatchReviewWorkspace
       batchId={id}

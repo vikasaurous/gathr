@@ -1,76 +1,121 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { ArrowUpDown, MoreHorizontal, Plus, Search } from "lucide-react";
-import { useMemo, useState } from "react";
-import { toast } from "sonner";
+import { ArrowUpDown, Plus, RefreshCw, Search } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { EmptyState, FilterTabs, PageHeader } from "@/components/gathr/common";
+import { IngestionBatchStatusPill } from "@/components/gathr/status";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuItem,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
-import { EmptyState, FilterTabs, PageHeader } from "@/components/gathr/common";
-import { BatchStatusPill } from "@/components/gathr/status";
-import { downloadText, invoicesToCsv } from "@/lib/gathr/export";
 import { formatBytes, formatDate } from "@/lib/gathr/format";
-import { actions, useWorkspace } from "@/lib/gathr/store";
-import type { BatchStatus } from "@/lib/gathr/types";
+import type {
+  BatchIngestionStatus,
+  BatchListResponse,
+  PersistedBatchSummary,
+} from "@/lib/gathr/ingestion-types";
 
 export const Route = createFileRoute("/app/batches/")({
   head: () => ({
     meta: [
       { title: "Batches | gathr" },
-      { name: "description", content: "Every document batch you have processed." },
+      { name: "description", content: "Every document batch in your workspace." },
       { property: "og:title", content: "Batches — gathr" },
-      { property: "og:description", content: "Every document batch you have processed." },
+      { property: "og:description", content: "Every document batch in your workspace." },
     ],
   }),
   component: Batches,
 });
 
-type F = "all" | BatchStatus;
+type F = "all" | BatchIngestionStatus;
 type SortOrder = "newest" | "oldest";
 
 function Batches() {
-  const ws = useWorkspace();
+  const [batches, setBatches] = useState<PersistedBatchSummary[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [filter, setFilter] = useState<F>("all");
   const [q, setQ] = useState("");
   const [sortOrder, setSortOrder] = useState<SortOrder>("newest");
-  const [confirmId, setConfirmId] = useState<string | null>(null);
+
+  const loadBatches = useCallback(async (signal?: AbortSignal) => {
+    setLoading(true);
+    setLoadError(null);
+    try {
+      const res = await fetch("/api/batches", {
+        method: "GET",
+        credentials: "same-origin",
+        ...(signal ? { signal } : {}),
+      });
+      if (signal?.aborted) return;
+      if (!res.ok) {
+        let message = "Could not load workspace batches.";
+        try {
+          const body = (await res.json()) as { error?: unknown };
+          if (typeof body.error === "string" && body.error) message = body.error;
+        } catch {
+          // Keep safe fallback message
+        }
+        setLoadError(message);
+        setLoading(false);
+        return;
+      }
+      const data = (await res.json()) as BatchListResponse;
+      setBatches(Array.isArray(data.batches) ? data.batches : []);
+      setLoading(false);
+    } catch (err) {
+      if (signal?.aborted || (err instanceof Error && err.name === "AbortError")) return;
+      // In non-HTTP test environments (e.g., jsdom routing unit tests without mocked fetch),
+      // treat relative-URL fetch TypeError as empty initial list instead of crashing navigation.
+      if (typeof window !== "undefined" && !window.location?.origin?.startsWith("http")) {
+        setBatches([]);
+        setLoading(false);
+        return;
+      }
+      setLoadError("Network error while loading workspace batches.");
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void loadBatches(controller.signal);
+    return () => controller.abort();
+  }, [loadBatches]);
+
   const rows = useMemo(
     () =>
-      [...ws.batches]
+      [...batches]
         .filter(
           (b) =>
             (filter === "all" || b.status === filter) &&
-            (b.name + b.id + b.files.map((f) => f.name).join())
-              .toLowerCase()
-              .includes(q.toLowerCase()),
+            (b.name + b.id).toLowerCase().includes(q.toLowerCase()),
         )
         .sort((a, b) =>
           sortOrder === "newest"
             ? b.createdAt.localeCompare(a.createdAt)
             : a.createdAt.localeCompare(b.createdAt),
         ),
-    [ws.batches, filter, q, sortOrder],
+    [batches, filter, q, sortOrder],
   );
+
   const count = (s: F) =>
-    s === "all" ? ws.batches.length : ws.batches.filter((b) => b.status === s).length;
-  const opts = (["all", "processing", "completed", "needs_review", "failed"] as F[]).map((v) => ({
+    s === "all" ? batches.length : batches.filter((b) => b.status === s).length;
+  const opts = (["all", "uploading", "uploaded", "partial", "failed"] as F[]).map((v) => ({
     value: v,
     label: {
       all: "All",
-      processing: "Processing",
-      completed: "Completed",
-      needs_review: "Needs review",
+      uploading: "In progress",
+      uploaded: "Uploaded",
+      partial: "Partial",
       failed: "Failed",
     }[v],
     count: count(v),
   }));
-  const toDelete = ws.batches.find((b) => b.id === confirmId);
 
   return (
     <div className="mx-auto max-w-[1180px] px-5 py-8 md:px-10 md:py-12">
@@ -85,7 +130,7 @@ function Batches() {
           </Button>
         }
       >
-        Every upload, with its source files and processing state.
+        Every upload, with its source files and upload status.
       </PageHeader>
       <div className="flex flex-col gap-3 py-5 md:flex-row md:items-center md:justify-between">
         <FilterTabs value={filter} onChange={setFilter} options={opts} />
@@ -95,7 +140,7 @@ function Batches() {
             <Input
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              placeholder="Search batches or files"
+              placeholder="Search batches"
               className="bg-surface pl-9"
             />
           </div>
@@ -117,7 +162,21 @@ function Batches() {
           </DropdownMenu>
         </div>
       </div>
-      {rows.length === 0 ? (
+
+      {loading ? (
+        <p className="py-12 text-[14px] text-muted-foreground">Loading batches…</p>
+      ) : loadError ? (
+        <EmptyState
+          title="Could not load batches."
+          action={
+            <Button variant="outline" onClick={() => void loadBatches()}>
+              <RefreshCw className="size-4" /> Retry
+            </Button>
+          }
+        >
+          {loadError}
+        </EmptyState>
+      ) : rows.length === 0 ? (
         <EmptyState
           title={q || filter !== "all" ? "No batches match." : "No batches yet."}
           action={
@@ -140,17 +199,16 @@ function Batches() {
         >
           {q || filter !== "all"
             ? "Try a different search or filter."
-            : "Upload a PDF to create your first batch."}
+            : "Select individual invoice PDFs to create your first batch."}
         </EmptyState>
       ) : (
         <ul className="border-t border-foreground">
           {rows.map((b) => {
-            const own = ws.invoices.filter((i) => i.batchId === b.id);
-            const pages = b.files.reduce((s, f) => s + f.pageCount, 0);
+            const pendingOnly = b.documentCount > 0 && b.pendingCount === b.documentCount;
             return (
               <li
                 key={b.id}
-                className="grid grid-cols-[1fr_auto] items-center gap-4 border-b border-border py-5 md:grid-cols-[110px_1fr_140px_120px_130px_40px]"
+                className="grid grid-cols-[1fr_auto] items-center gap-4 border-b border-border py-5 md:grid-cols-[110px_1fr_140px_140px_100px]"
               >
                 <span className="num hidden text-[12px] text-muted-foreground md:block">
                   {formatDate(b.createdAt)}
@@ -164,75 +222,29 @@ function Batches() {
                     {b.name}
                   </Link>
                   <p className="num mt-1 truncate text-[11px] text-muted-foreground">
-                    {b.id} · {b.files.length} file{b.files.length > 1 ? "s" : ""} ·{" "}
-                    {formatBytes(b.files.reduce((s, f) => s + f.size, 0))}
-                    {pages ? ` · ${pages} pages` : ""}
+                    {b.id} · {b.documentCount} document{b.documentCount === 1 ? "" : "s"} ·{" "}
+                    {formatBytes(b.totalSizeBytes)}
                   </p>
-                  {b.error && <p className="mt-1 text-[12px] text-destructive">{b.error}</p>}
                 </div>
                 <span className="num hidden text-[13px] md:block">
-                  {own.length} invoices
+                  {b.uploadedCount} uploaded
                   <br />
-                  <span className="text-muted-foreground">
-                    {own.filter((i) => i.status === "verified").length} verified
-                  </span>
+                  <span className="text-muted-foreground">{b.pendingCount} pending</span>
                 </span>
                 <span className="hidden md:block">
-                  <BatchStatusPill status={b.status} />
+                  <IngestionBatchStatusPill status={b.status} pendingOnly={pendingOnly} />
                 </span>
-                <span className="hidden md:block">
-                  {b.status !== "failed" && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-[36px] w-[76px] min-w-[76px] max-w-[76px] shrink-0 inline-flex items-center justify-center text-center"
-                      asChild
-                    >
-                      <Link
-                        to="/app/batches/$id"
-                        params={{ id: b.id }}
-                        className="h-[36px] w-[76px] min-w-[76px] max-w-[76px] shrink-0 inline-flex items-center justify-center text-center"
-                      >
-                        {b.status === "needs_review" ? "Review" : "Open"}
-                      </Link>
-                    </Button>
-                  )}
+                <span className="hidden justify-end md:flex">
+                  <Button variant="outline" size="sm" asChild>
+                    <Link to="/app/batches/$id" params={{ id: b.id }}>
+                      Open
+                    </Link>
+                  </Button>
                 </span>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="icon" aria-label="Batch actions">
-                      <MoreHorizontal />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    {b.status !== "failed" && (
-                      <DropdownMenuItem asChild>
-                        <Link to="/app/batches/$id" params={{ id: b.id }}>
-                          Open review
-                        </Link>
-                      </DropdownMenuItem>
-                    )}
-                    <DropdownMenuItem
-                      disabled={!own.length}
-                      onClick={() => {
-                        downloadText(`${b.id}.csv`, invoicesToCsv(own));
-                        toast.success("CSV downloaded");
-                      }}
-                    >
-                      Download CSV
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      className="text-destructive"
-                      onClick={() => setConfirmId(b.id)}
-                    >
-                      Delete batch
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
                 <span className="col-span-2 flex items-center gap-3 md:hidden">
-                  <BatchStatusPill status={b.status} />
+                  <IngestionBatchStatusPill status={b.status} pendingOnly={pendingOnly} />
                   <span className="num text-[11px] text-muted-foreground">
-                    {own.length} invoices · {formatDate(b.createdAt)}
+                    {b.documentCount} documents · {formatDate(b.createdAt)}
                   </span>
                 </span>
               </li>
@@ -240,63 +252,6 @@ function Batches() {
           })}
         </ul>
       )}
-      {toDelete && (
-        <DeleteConfirm
-          name={toDelete.name}
-          onCancel={() => setConfirmId(null)}
-          onConfirm={() => {
-            actions.deleteBatch(toDelete.id);
-            setConfirmId(null);
-            toast.success("Batch deleted");
-          }}
-        />
-      )}
     </div>
-  );
-}
-
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-
-function DeleteConfirm({
-  name,
-  onCancel,
-  onConfirm,
-}: {
-  name: string;
-  onCancel: () => void;
-  onConfirm: () => void;
-}) {
-  return (
-    <AlertDialog open onOpenChange={(o) => !o && onCancel()}>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle className="font-serif text-2xl font-normal">
-            Delete “{name}”?
-          </AlertDialogTitle>
-          <AlertDialogDescription>
-            The batch and all its invoices, including your corrections, will be removed from this
-            workspace.
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel>Cancel</AlertDialogCancel>
-          <AlertDialogAction
-            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            onClick={onConfirm}
-          >
-            Delete batch
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
   );
 }

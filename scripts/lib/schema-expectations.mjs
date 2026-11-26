@@ -20,11 +20,18 @@ export const EXPECTED_SCHEMA = {
       workspace_id: "uuid",
       name: "text",
       status: "text",
+      idempotency_key: "text",
+      request_hash: "text",
       created_at: TS,
       updated_at: TS,
     },
-    constraints: ["batches_pkey", "batches_workspace_id_id_key", "ck_batches_status"],
-    indexes: ["batches_workspace_created_at_idx"],
+    constraints: [
+      "batches_pkey",
+      "batches_workspace_id_id_key",
+      "ck_batches_status",
+      "ck_batches_idempotency_pair",
+    ],
+    indexes: ["batches_workspace_created_at_idx", "batches_workspace_idempotency_key_idx"],
   },
   documents: {
     columns: {

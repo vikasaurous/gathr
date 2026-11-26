@@ -22,12 +22,14 @@ import { Route as ProductRouteImport } from './routes/product'
 import { Route as RegisterRouteImport } from './routes/register'
 import { Route as TermsRouteImport } from './routes/terms'
 import { Route as VerifyEmailRouteImport } from './routes/verify-email'
+import { Route as ApiBatchesRouteImport } from './routes/api.batches'
 import { Route as ApiWorkspaceRouteImport } from './routes/api.workspace'
 import { Route as AppIndexRouteImport } from './routes/app.index'
 import { Route as AppInvoicesRouteImport } from './routes/app.invoices'
 import { Route as AppNewRouteImport } from './routes/app.new'
 import { Route as AppSettingsRouteImport } from './routes/app.settings'
 import { Route as ApiAuthSplatRouteImport } from './routes/api.auth.$'
+import { Route as ApiBatchesIdRouteImport } from './routes/api.batches.$id'
 import { Route as AppBatchesIndexRouteImport } from './routes/app.batches.index'
 import { Route as AppBatchesIdRouteImport } from './routes/app.batches.$id'
 
@@ -96,6 +98,11 @@ const VerifyEmailRoute = VerifyEmailRouteImport.update({
   path: '/verify-email',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiBatchesRoute = ApiBatchesRouteImport.update({
+  id: '/api/batches',
+  path: '/api/batches',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiWorkspaceRoute = ApiWorkspaceRouteImport.update({
   id: '/api/workspace',
   path: '/api/workspace',
@@ -126,6 +133,11 @@ const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   path: '/api/auth/$',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiBatchesIdRoute = ApiBatchesIdRouteImport.update({
+  id: '/$id',
+  path: '/$id',
+  getParentRoute: () => ApiBatchesRoute,
+} as any)
 const AppBatchesIndexRoute = AppBatchesIndexRouteImport.update({
   id: '/batches/',
   path: '/batches/',
@@ -151,12 +163,14 @@ export interface FileRoutesByFullPath {
   '/register': typeof RegisterRoute
   '/terms': typeof TermsRoute
   '/verify-email': typeof VerifyEmailRoute
+  '/api/batches': typeof ApiBatchesRouteWithChildren
   '/api/workspace': typeof ApiWorkspaceRoute
   '/app/invoices': typeof AppInvoicesRoute
   '/app/new': typeof AppNewRoute
   '/app/settings': typeof AppSettingsRoute
   '/app/': typeof AppIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/batches/$id': typeof ApiBatchesIdRoute
   '/app/batches/$id': typeof AppBatchesIdRoute
   '/app/batches/': typeof AppBatchesIndexRoute
 }
@@ -173,12 +187,14 @@ export interface FileRoutesByTo {
   '/register': typeof RegisterRoute
   '/terms': typeof TermsRoute
   '/verify-email': typeof VerifyEmailRoute
+  '/api/batches': typeof ApiBatchesRouteWithChildren
   '/api/workspace': typeof ApiWorkspaceRoute
   '/app/invoices': typeof AppInvoicesRoute
   '/app/new': typeof AppNewRoute
   '/app/settings': typeof AppSettingsRoute
   '/app': typeof AppIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/batches/$id': typeof ApiBatchesIdRoute
   '/app/batches/$id': typeof AppBatchesIdRoute
   '/app/batches': typeof AppBatchesIndexRoute
 }
@@ -197,12 +213,14 @@ export interface FileRoutesById {
   '/register': typeof RegisterRoute
   '/terms': typeof TermsRoute
   '/verify-email': typeof VerifyEmailRoute
+  '/api/batches': typeof ApiBatchesRouteWithChildren
   '/api/workspace': typeof ApiWorkspaceRoute
   '/app/invoices': typeof AppInvoicesRoute
   '/app/new': typeof AppNewRoute
   '/app/settings': typeof AppSettingsRoute
   '/app/': typeof AppIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/batches/$id': typeof ApiBatchesIdRoute
   '/app/batches/$id': typeof AppBatchesIdRoute
   '/app/batches/': typeof AppBatchesIndexRoute
 }
@@ -222,12 +240,14 @@ export interface FileRouteTypes {
     | '/register'
     | '/terms'
     | '/verify-email'
+    | '/api/batches'
     | '/api/workspace'
     | '/app/invoices'
     | '/app/new'
     | '/app/settings'
     | '/app/'
     | '/api/auth/$'
+    | '/api/batches/$id'
     | '/app/batches/$id'
     | '/app/batches/'
   fileRoutesByTo: FileRoutesByTo
@@ -244,12 +264,14 @@ export interface FileRouteTypes {
     | '/register'
     | '/terms'
     | '/verify-email'
+    | '/api/batches'
     | '/api/workspace'
     | '/app/invoices'
     | '/app/new'
     | '/app/settings'
     | '/app'
     | '/api/auth/$'
+    | '/api/batches/$id'
     | '/app/batches/$id'
     | '/app/batches'
   id:
@@ -267,12 +289,14 @@ export interface FileRouteTypes {
     | '/register'
     | '/terms'
     | '/verify-email'
+    | '/api/batches'
     | '/api/workspace'
     | '/app/invoices'
     | '/app/new'
     | '/app/settings'
     | '/app/'
     | '/api/auth/$'
+    | '/api/batches/$id'
     | '/app/batches/$id'
     | '/app/batches/'
   fileRoutesById: FileRoutesById
@@ -291,6 +315,7 @@ export interface RootRouteChildren {
   RegisterRoute: typeof RegisterRoute
   TermsRoute: typeof TermsRoute
   VerifyEmailRoute: typeof VerifyEmailRoute
+  ApiBatchesRoute: typeof ApiBatchesRouteWithChildren
   ApiWorkspaceRoute: typeof ApiWorkspaceRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
 }
@@ -388,6 +413,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof VerifyEmailRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/batches': {
+      id: '/api/batches'
+      path: '/api/batches'
+      fullPath: '/api/batches'
+      preLoaderRoute: typeof ApiBatchesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/workspace': {
       id: '/api/workspace'
       path: '/api/workspace'
@@ -430,6 +462,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAuthSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/batches/$id': {
+      id: '/api/batches/$id'
+      path: '/$id'
+      fullPath: '/api/batches/$id'
+      preLoaderRoute: typeof ApiBatchesIdRouteImport
+      parentRoute: typeof ApiBatchesRoute
+    }
     '/app/batches/': {
       id: '/app/batches/'
       path: '/batches'
@@ -467,6 +506,18 @@ const AppRouteChildren: AppRouteChildren = {
 
 const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
 
+interface ApiBatchesRouteChildren {
+  ApiBatchesIdRoute: typeof ApiBatchesIdRoute
+}
+
+const ApiBatchesRouteChildren: ApiBatchesRouteChildren = {
+  ApiBatchesIdRoute: ApiBatchesIdRoute,
+}
+
+const ApiBatchesRouteWithChildren = ApiBatchesRoute._addFileChildren(
+  ApiBatchesRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AdminRoute: AdminRoute,
@@ -481,6 +532,7 @@ const rootRouteChildren: RootRouteChildren = {
   RegisterRoute: RegisterRoute,
   TermsRoute: TermsRoute,
   VerifyEmailRoute: VerifyEmailRoute,
+  ApiBatchesRoute: ApiBatchesRouteWithChildren,
   ApiWorkspaceRoute: ApiWorkspaceRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
 }

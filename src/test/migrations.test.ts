@@ -614,3 +614,71 @@ describe("Phase 2 acceptance checks against the migrated schema", () => {
     });
   });
 });
+
+describe("Phase 3 migration 006 — batch idempotency", () => {
+  it("enforces idempotency_key + request_hash pairing and workspace-scoped uniqueness", async () => {
+    const pg = new PGlite();
+    const res = await runMigrations({
+      db: pgliteAdapter(pg),
+      dir: MIGRATIONS_DIR,
+      mode: "apply",
+    });
+    expect(res.ok).toBe(true);
+    expect(res.appliedNow).toContain("006_batch_idempotency.sql");
+
+    await pg.exec(
+      `insert into "user"(id,name,email) values ('u1','A','a@x.com'),('u2','B','b@x.com')`,
+    );
+    const ws1 = (
+      await rowsOf(pg, `insert into workspaces(owner_user_id,name) values ('u1','W1') returning id`)
+    )[0]!.id;
+    const ws2 = (
+      await rowsOf(pg, `insert into workspaces(owner_user_id,name) values ('u2','W2') returning id`)
+    )[0]!.id;
+
+    // Pairing check constraint rejects incomplete idempotency metadata or >128 char keys
+    await fails(
+      pg,
+      `insert into batches(workspace_id,name,idempotency_key) values ($1,'b','k1')`,
+      [ws1],
+      "23514",
+    );
+    await fails(
+      pg,
+      `insert into batches(workspace_id,name,request_hash) values ($1,'b','h1')`,
+      [ws1],
+      "23514",
+    );
+    await fails(
+      pg,
+      `insert into batches(workspace_id,name,idempotency_key,request_hash) values ($1,'b',$2,'h1')`,
+      [ws1, "k".repeat(129)],
+      "23514",
+    );
+
+    // Multiple NULL idempotency keys allowed in the same workspace
+    await expect(
+      pg.query(`insert into batches(workspace_id,name) values ($1,'b1'),($1,'b2')`, [ws1]),
+    ).resolves.toBeDefined();
+
+    // Same idempotency_key rejected within the same workspace, allowed across different workspaces
+    await pg.query(
+      `insert into batches(workspace_id,name,idempotency_key,request_hash) values ($1,'b3','same-key','hash-a')`,
+      [ws1],
+    );
+    await fails(
+      pg,
+      `insert into batches(workspace_id,name,idempotency_key,request_hash) values ($1,'b4','same-key','hash-a')`,
+      [ws1],
+      "23505",
+    );
+    await expect(
+      pg.query(
+        `insert into batches(workspace_id,name,idempotency_key,request_hash) values ($1,'b5','same-key','hash-b')`,
+        [ws2],
+      ),
+    ).resolves.toBeDefined();
+
+    await pg.close();
+  }, 60_000);
+});
