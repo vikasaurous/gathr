@@ -5,7 +5,7 @@ import { FEATURES } from "@/components/gathr/features-list";
 export const Route = createFileRoute("/features")({
   head: () => ({
     meta: [
-      { title: "Features — gathr" },
+      { title: "Features | gathr" },
       {
         name: "description",
         content:
