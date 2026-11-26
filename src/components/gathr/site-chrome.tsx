@@ -137,9 +137,9 @@ export function SiteFooter() {
         <span className="inline-flex items-center gap-1.5">
           <span aria-hidden="true">&#9829;&#xFE0E;</span>
           <span>
-            Designed and developed by{" "}
+            Developed by{" "}
             <a
-              href="#"
+              href="https://slate-build.pages.dev/"
               target="_blank"
               rel="noopener noreferrer"
               className="group relative inline-block italic transition-colors duration-300 ease-out hover:text-foreground"

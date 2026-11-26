@@ -1,20 +1,17 @@
 import "@tanstack/react-start/server-only";
+import {
+  isUuid,
+  type BatchIngestionStatus,
+  type DocumentReviewStatus,
+  type DocumentUploadStatus,
+} from "@/lib/gathr/ingestion-types";
 import { HttpError } from "./env";
 import { resolveSession } from "./auth-session";
+import type { SqlClient } from "./sql";
 
-// UUID format validation (8-4-4-4-12 hex) — inlined to avoid dependency on ingestion-types (not merged yet)
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-export function isUuid(value: string): boolean {
-  return UUID_RE.test(value);
-}
-
-export type BatchIngestionStatus = "open" | "sealed" | "processing" | "done" | "failed";
-export type DocumentUploadStatus = "pending" | "uploading" | "uploaded" | "failed" | "skipped";
-
-/** Minimal SQL client interface — matches @/lib/db/neon SqlClient (inlined to avoid unmerged dep) */
-interface SqlClient {
-  query(sql: string, params?: unknown[]): Promise<Record<string, unknown>[]>;
-}
+// Status unions come from ingestion-types, which mirrors the database CHECK constraints.
+export { isUuid };
+export type { BatchIngestionStatus, DocumentReviewStatus, DocumentUploadStatus };
 
 export interface AuthenticatedUser {
   id: string;
@@ -56,7 +53,10 @@ export interface OwnedDocumentRow {
   activeAttemptId: string | null;
   leaseExpiresAt: string | null;
   uploadStartedAt: string | null;
+  /** Technical upload lifecycle state. Never means approved or rejected. */
   status: DocumentUploadStatus;
+  /** Business review state; null until the document has been uploaded. */
+  reviewStatus: DocumentReviewStatus | null;
   pageCount: number | null;
   errorMessage: string | null;
   uploadedAt: string | null;
@@ -101,6 +101,8 @@ export function mapDocumentRow(row: Record<string, unknown>): OwnedDocumentRow {
     leaseExpiresAt: toNullableIsoString(row["lease_expires_at"]),
     uploadStartedAt: toNullableIsoString(row["upload_started_at"]),
     status: String(row["status"]) as DocumentUploadStatus,
+    reviewStatus:
+      row["review_status"] == null ? null : (String(row["review_status"]) as DocumentReviewStatus),
     pageCount: row["page_count"] == null ? null : Number(row["page_count"]),
     errorMessage: typeof row["error_message"] === "string" ? row["error_message"] : null,
     uploadedAt: toNullableIsoString(row["uploaded_at"]),
@@ -329,7 +331,7 @@ export async function requireOwnedDocument(
   const rows = await sql.query(
     `SELECT "id", "workspace_id", "batch_id", "original_filename", "mime_type",
             "file_size_bytes", "storage_key", "active_attempt_id", "lease_expires_at",
-            "upload_started_at", "status", "page_count", "error_message",
+            "upload_started_at", "status", "review_status", "page_count", "error_message",
             "uploaded_at", "created_at", "updated_at"
      FROM "documents"
      WHERE "id" = $1 AND "workspace_id" = $2

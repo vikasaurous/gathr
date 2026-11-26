@@ -1,7 +1,10 @@
--- Better Auth v1 — PostgreSQL schema
--- Generated manually for better-auth@1.x with emailAndPassword plugin.
--- Apply once against the development branch ONLY.
--- Tables: user, session, account, verification
+-- ============================================================================
+-- GATHR Migration 001 — Better Auth Schema
+-- Target: PostgreSQL / Neon Serverless
+-- Applies: auth tables (user, session, account, verification)
+-- Precondition: empty database
+-- Safe to re-run: CREATE TABLE IF NOT EXISTS throughout
+-- ============================================================================
 
 CREATE TABLE IF NOT EXISTS "user" (
   "id"             TEXT PRIMARY KEY,
@@ -49,8 +52,6 @@ CREATE TABLE IF NOT EXISTS "verification" (
   "updatedAt"  TIMESTAMP DEFAULT now()
 );
 
--- Indexes for performance
 CREATE INDEX IF NOT EXISTS "session_userId_idx" ON "session"("userId");
 CREATE INDEX IF NOT EXISTS "account_userId_idx" ON "account"("userId");
 CREATE INDEX IF NOT EXISTS "account_providerId_accountId_idx" ON "account"("providerId", "accountId");
-

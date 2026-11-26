@@ -5,7 +5,7 @@ import { PageIntro, SiteFooter, SiteHeader } from "@/components/gathr/site-chrom
 export const Route = createFileRoute("/how-it-works")({
   head: () => ({
     meta: [
-      { title: "How it works — gathr" },
+      { title: "How it works | gathr" },
       {
         name: "description",
         content: "Upload, detect, extract, review, deduplicate, organize and export invoices.",

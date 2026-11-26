@@ -14,7 +14,7 @@ export const Route = createFileRoute("/pricing")({
   }),
   head: () => ({
     meta: [
-      { title: "Pricing — gathr" },
+      { title: "Pricing | gathr" },
       {
         name: "description",
         content: "Simple plans for invoice processing: Free, Pro and Business.",

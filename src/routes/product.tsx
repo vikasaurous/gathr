@@ -7,7 +7,7 @@ import { PageIntro, SiteFooter, SiteHeader } from "@/components/gathr/site-chrom
 export const Route = createFileRoute("/product")({
   head: () => ({
     meta: [
-      { title: "Product — gathr invoice processing workspace" },
+      { title: "Product | gathr invoice processing workspace" },
       {
         name: "description",
         content:

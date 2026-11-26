@@ -43,3 +43,4 @@ dist-ssr
 /scratch
 /test
 /docs
+.agent/
