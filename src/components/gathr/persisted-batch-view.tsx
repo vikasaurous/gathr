@@ -1,11 +1,33 @@
 import { Link } from "@tanstack/react-router";
-import { AlertCircle, ArrowLeft, FileText, Plus, RefreshCw } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import {
+  AlertCircle,
+  ArrowLeft,
+  Download,
+  ExternalLink,
+  FileText,
+  Plus,
+  RefreshCw,
+  RotateCcw,
+  Upload,
+  X,
+} from "lucide-react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { EmptyState } from "@/components/gathr/common";
 import { DocumentUploadStatusPill, IngestionBatchStatusPill } from "@/components/gathr/status";
 import { Button } from "@/components/ui/button";
 import { formatBytes, formatDate } from "@/lib/gathr/format";
-import type { BatchDetailResponse } from "@/lib/gathr/ingestion-types";
+import {
+  checkPdfFileMetadata,
+  hasValidPdfHeader,
+  type BatchDetailResponse,
+  type PersistedBatch,
+  type PersistedDocument,
+} from "@/lib/gathr/ingestion-types";
+import {
+  MAX_CONCURRENT_UPLOADS,
+  uploadOrchestrator,
+  type DocumentUploadEntry,
+} from "@/lib/gathr/upload-orchestrator";
 
 export function PersistedBatchView({ batchId }: { batchId: string }) {
   const [state, setState] = useState<
@@ -14,6 +36,33 @@ export function PersistedBatchView({ batchId }: { batchId: string }) {
     | { status: "error"; message: string }
     | { status: "ready"; data: BatchDetailResponse }
   >({ status: "loading" });
+
+  const [reattachErrors, setReattachErrors] = useState<Record<string, string>>({});
+  const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+
+  const uploadEntries = useSyncExternalStore(
+    uploadOrchestrator.subscribe,
+    () => uploadOrchestrator.getBatchEntries(batchId),
+    () => uploadOrchestrator.getBatchEntries(batchId),
+  );
+
+  const handleServerUpdate = useCallback(
+    (payload: { document: PersistedDocument; batch: PersistedBatch }) => {
+      setState((prev) => {
+        if (prev.status !== "ready") return prev;
+        return {
+          status: "ready",
+          data: {
+            batch: payload.batch,
+            documents: prev.data.documents.map((doc) =>
+              doc.id === payload.document.id ? payload.document : doc,
+            ),
+          },
+        };
+      });
+    },
+    [],
+  );
 
   const loadBatch = useCallback(
     async (signal?: AbortSignal) => {
@@ -51,6 +100,7 @@ export function PersistedBatchView({ batchId }: { batchId: string }) {
 
         const data = (await res.json()) as BatchDetailResponse;
         setState({ status: "ready", data });
+        uploadOrchestrator.startBatch(batchId, data.documents, handleServerUpdate);
       } catch (err) {
         if (signal?.aborted || (err instanceof Error && err.name === "AbortError")) return;
         setState({
@@ -59,14 +109,55 @@ export function PersistedBatchView({ batchId }: { batchId: string }) {
         });
       }
     },
-    [batchId],
+    [batchId, handleServerUpdate],
   );
 
   useEffect(() => {
     const controller = new AbortController();
     void loadBatch(controller.signal);
-    return () => controller.abort();
-  }, [loadBatch]);
+    return () => {
+      controller.abort();
+      uploadOrchestrator.unregisterCallback(batchId);
+    };
+  }, [batchId, loadBatch]);
+
+  async function handleReattachFile(doc: PersistedDocument, pickedFile: File) {
+    setReattachErrors((prev) => {
+      const next = { ...prev };
+      delete next[doc.id];
+      return next;
+    });
+
+    const metaError = checkPdfFileMetadata(pickedFile);
+    if (metaError) {
+      setReattachErrors((prev) => ({ ...prev, [doc.id]: metaError }));
+      return;
+    }
+
+    if (pickedFile.size !== doc.fileSizeBytes) {
+      setReattachErrors((prev) => ({
+        ...prev,
+        [doc.id]: `Selected file size (${formatBytes(pickedFile.size)}) does not match this document record (${formatBytes(doc.fileSizeBytes)}).`,
+      }));
+      return;
+    }
+
+    let validSig = false;
+    try {
+      validSig = await hasValidPdfHeader(pickedFile);
+    } catch {
+      validSig = false;
+    }
+    if (!validSig) {
+      setReattachErrors((prev) => ({
+        ...prev,
+        [doc.id]: "File is not a valid PDF (missing %PDF- signature).",
+      }));
+      return;
+    }
+
+    uploadOrchestrator.uploadFileForDocument(batchId, doc.id, pickedFile, handleServerUpdate);
+  }
 
   if (state.status === "loading") {
     return (
@@ -118,8 +209,16 @@ export function PersistedBatchView({ batchId }: { batchId: string }) {
 
   const { batch, documents } = state.data;
   const totalBytes = documents.reduce((sum, doc) => sum + doc.fileSizeBytes, 0);
+  const uploadedCount = documents.filter((doc) => doc.status === "uploaded").length;
+  const failedCount = documents.filter((doc) => doc.status === "failed").length;
+  const activeLocalCount = documents.filter((doc) => {
+    const entry = uploadEntries.get(doc.id);
+    return entry && (entry.phase === "uploading" || entry.phase === "queued");
+  }).length;
   const pendingOnly =
-    documents.length > 0 && documents.every((doc) => doc.status === "pending_upload");
+    documents.length > 0 &&
+    activeLocalCount === 0 &&
+    documents.every((doc) => doc.status === "pending_upload");
 
   return (
     <div className="mx-auto max-w-[1040px] px-5 py-8 md:px-10 md:py-12">
@@ -149,12 +248,22 @@ export function PersistedBatchView({ batchId }: { batchId: string }) {
         </div>
       </div>
 
-      <div className="mt-6 flex items-start gap-2.5 rounded-md border border-border bg-surface px-4 py-3 text-[13px] text-muted-foreground">
-        <AlertCircle className="mt-0.5 size-4 shrink-0 text-primary" strokeWidth={1.6} />
-        <p>
-          Batch saved to your workspace. Each PDF is tracked as an individual document record (no
-          merging, splitting, or invoice content reading has occurred).
-        </p>
+      <div className="mt-6 flex items-start justify-between gap-3 rounded-md border border-border bg-surface px-4 py-3 text-[13px] text-muted-foreground">
+        <div className="flex items-start gap-2.5">
+          <AlertCircle className="mt-0.5 size-4 shrink-0 text-primary" strokeWidth={1.6} />
+          <p>
+            {activeLocalCount > 0
+              ? `Uploading documents to private storage (${uploadedCount} of ${documents.length} confirmed · max ${MAX_CONCURRENT_UPLOADS} concurrent uploads).`
+              : batch.status === "uploaded"
+                ? `All ${documents.length} PDF document${documents.length === 1 ? "" : "s"} stored privately in your workspace. Retrieval requires your authenticated session.`
+                : batch.status === "partial"
+                  ? `${uploadedCount} of ${documents.length} documents stored; ${failedCount} failed and can be retried below.`
+                  : "Batch saved to your workspace. Each PDF is stored and tracked as an individual private document (no merging, splitting, or invoice content reading has occurred)."}
+          </p>
+        </div>
+        <span className="num shrink-0 text-[11.5px] text-foreground">
+          {uploadedCount}/{documents.length} uploaded
+        </span>
       </div>
 
       {documents.length === 0 ? (
@@ -165,32 +274,213 @@ export function PersistedBatchView({ batchId }: { batchId: string }) {
         <section className="mt-8" aria-label="Prepared PDF documents">
           <h2 className="eyebrow mb-3">Documents ({documents.length})</h2>
           <ul className="border-t border-foreground">
-            {documents.map((doc, idx) => (
-              <li
-                key={doc.id}
-                className="flex flex-wrap items-center justify-between gap-4 border-b border-border py-4"
-              >
-                <div className="flex min-w-0 flex-1 items-start gap-3">
-                  <span className="num pt-0.5 text-[11px] text-muted-foreground">
-                    {String(idx + 1).padStart(2, "0")}
-                  </span>
-                  <FileText
-                    className="mt-0.5 size-4 shrink-0 text-muted-foreground"
-                    strokeWidth={1.5}
-                  />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-[14px] font-medium">{doc.originalFilename}</p>
-                    <p className="num mt-0.5 text-[11px] text-muted-foreground">
-                      {doc.id} · {formatBytes(doc.fileSizeBytes)} · {doc.mimeType}
-                    </p>
-                    {doc.errorMessage && (
-                      <p className="mt-1 text-[12px] text-destructive">{doc.errorMessage}</p>
-                    )}
+            {documents.map((doc, idx) => {
+              const entry: DocumentUploadEntry | undefined = uploadEntries.get(doc.id);
+              const isLocallyUploading = entry?.phase === "uploading";
+              const isLocallyQueued = entry?.phase === "queued";
+              const effectiveStatus =
+                doc.status === "uploaded"
+                  ? "uploaded"
+                  : isLocallyUploading
+                    ? "uploading"
+                    : entry?.phase === "failed" || entry?.phase === "cancelled"
+                      ? "failed"
+                      : doc.status;
+              const inlineError =
+                reattachErrors[doc.id] ??
+                (doc.status !== "uploaded" ? (entry?.errorMessage ?? doc.errorMessage) : null);
+              const canRetryInMemory =
+                doc.status !== "uploaded" &&
+                !isLocallyUploading &&
+                !isLocallyQueued &&
+                Boolean(entry?.file);
+              const canAttachAndUpload =
+                doc.status !== "uploaded" &&
+                doc.status !== "uploading" &&
+                !isLocallyUploading &&
+                !isLocallyQueued &&
+                !entry?.file;
+              const isStrandedServerUpload =
+                doc.status === "uploading" && !isLocallyUploading && !isLocallyQueued;
+
+              return (
+                <li
+                  key={doc.id}
+                  className="flex flex-col gap-3 border-b border-border py-4"
+                  data-document-id={doc.id}
+                  data-upload-status={effectiveStatus}
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-4">
+                    <div className="flex min-w-0 flex-1 items-start gap-3">
+                      <span className="num pt-0.5 text-[11px] text-muted-foreground">
+                        {String(idx + 1).padStart(2, "0")}
+                      </span>
+                      <FileText
+                        className="mt-0.5 size-4 shrink-0 text-muted-foreground"
+                        strokeWidth={1.5}
+                      />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-[14px] font-medium">{doc.originalFilename}</p>
+                        <p className="num mt-0.5 text-[11px] text-muted-foreground">
+                          {doc.id} · {formatBytes(doc.fileSizeBytes)} · {doc.mimeType}
+                        </p>
+                        {isLocallyQueued && doc.status !== "uploaded" && (
+                          <p className="num mt-1 text-[11.5px] text-muted-foreground">
+                            Queued — waiting for an open upload slot (max {MAX_CONCURRENT_UPLOADS}{" "}
+                            concurrent)
+                          </p>
+                        )}
+                        {inlineError && (
+                          <p role="alert" className="mt-1 text-[12px] text-destructive">
+                            {inlineError}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      <DocumentUploadStatusPill status={effectiveStatus} />
+
+                      {(isLocallyUploading || isLocallyQueued) && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          aria-label={`Cancel upload for ${doc.originalFilename}`}
+                          onClick={() =>
+                            void uploadOrchestrator.cancelDocument(
+                              batchId,
+                              doc.id,
+                              handleServerUpdate,
+                            )
+                          }
+                        >
+                          <X className="size-3.5" /> Cancel
+                        </Button>
+                      )}
+
+                      {isStrandedServerUpload && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          aria-label={`Cancel upload for ${doc.originalFilename}`}
+                          onClick={() =>
+                            void uploadOrchestrator.cancelStuckServerUpload(
+                              batchId,
+                              doc.id,
+                              handleServerUpdate,
+                            )
+                          }
+                        >
+                          <X className="size-3.5" /> Cancel stalled upload
+                        </Button>
+                      )}
+
+                      {canRetryInMemory && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          aria-label={`Retry upload for ${doc.originalFilename}`}
+                          onClick={() =>
+                            void uploadOrchestrator.retryDocument(
+                              batchId,
+                              doc.id,
+                              handleServerUpdate,
+                            )
+                          }
+                        >
+                          <RotateCcw className="size-3.5" /> Retry
+                        </Button>
+                      )}
+
+                      {canAttachAndUpload && (
+                        <>
+                          <input
+                            ref={(el) => {
+                              fileInputRefs.current[doc.id] = el;
+                            }}
+                            type="file"
+                            accept="application/pdf,.pdf"
+                            tabIndex={-1}
+                            aria-hidden="true"
+                            className="hidden"
+                            onChange={(e) => {
+                              const picked = e.target.files?.[0];
+                              e.target.value = "";
+                              if (picked) {
+                                void handleReattachFile(doc, picked);
+                              }
+                            }}
+                          />
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            aria-label={`Upload PDF for ${doc.originalFilename}`}
+                            onClick={() => fileInputRefs.current[doc.id]?.click()}
+                          >
+                            <Upload className="size-3.5" />{" "}
+                            {doc.status === "failed" ? "Re-upload PDF" : "Upload PDF"}
+                          </Button>
+                        </>
+                      )}
+
+                      {doc.status === "uploaded" && (
+                        <>
+                          <Button variant="outline" size="sm" asChild>
+                            <a
+                              href={`/api/documents/${encodeURIComponent(doc.id)}/content`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              aria-label={`View ${doc.originalFilename}`}
+                            >
+                              <ExternalLink className="size-3.5" /> View PDF
+                            </a>
+                          </Button>
+                          <Button variant="ghost" size="sm" asChild>
+                            <a
+                              href={`/api/documents/${encodeURIComponent(doc.id)}/content?download=1`}
+                              download={doc.originalFilename}
+                              aria-label={`Download ${doc.originalFilename}`}
+                            >
+                              <Download className="size-3.5" /> Download
+                            </a>
+                          </Button>
+                        </>
+                      )}
+                    </div>
                   </div>
-                </div>
-                <DocumentUploadStatusPill status={doc.status} />
-              </li>
-            ))}
+
+                  {isLocallyUploading && entry && (
+                    <div className="pl-9 pr-1">
+                      <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                        <span className="num">
+                          {formatBytes(entry.loadedBytes)} / {formatBytes(entry.totalBytes)}
+                        </span>
+                        <span className="num font-medium text-foreground">
+                          {entry.progressPercent}%
+                        </span>
+                      </div>
+                      <div
+                        role="progressbar"
+                        aria-label={`Upload progress for ${doc.originalFilename}`}
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                        aria-valuenow={entry.progressPercent}
+                        className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-border"
+                      >
+                        <div
+                          className="h-full bg-primary transition-[width] duration-150"
+                          style={{ width: `${entry.progressPercent}%` }}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         </section>
       )}

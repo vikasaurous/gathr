@@ -15,6 +15,7 @@ import {
   sanitizeOriginalFilename,
   type CreateBatchResponse,
 } from "@/lib/gathr/ingestion-types";
+import { uploadOrchestrator } from "@/lib/gathr/upload-orchestrator";
 
 export const Route = createFileRoute("/app/new")({
   head: () => ({
@@ -250,6 +251,23 @@ export function NewBatch({ onCreated }: { onCreated?: ((batchId: string) => void
       }
 
       const created = (await response.json()) as CreateBatchResponse;
+      const uploadPairs = created.documents
+        .map((doc, idx) => {
+          const matched =
+            readyFiles[idx]?.displayName === doc.originalFilename
+              ? readyFiles[idx]
+              : readyFiles.find(
+                  (f) =>
+                    f.displayName === doc.originalFilename && f.file.size === doc.fileSizeBytes,
+                );
+          return matched ? { documentId: doc.id, file: matched.file } : null;
+        })
+        .filter((item): item is { documentId: string; file: File } => item !== null);
+
+      if (uploadPairs.length > 0) {
+        uploadOrchestrator.registerBatchFiles(created.batch.id, uploadPairs);
+      }
+
       toast.success(
         `Batch created with ${created.documents.length} PDF document${created.documents.length === 1 ? "" : "s"}`,
       );
@@ -391,8 +409,8 @@ export function NewBatch({ onCreated }: { onCreated?: ((batchId: string) => void
               </div>
             </dl>
             <p className="mt-3 border-t border-border pt-3 text-[12px] text-muted-foreground">
-              One PDF equals one GATHR document. Selected PDFs are validated and prepared as
-              separate document records without reading invoice contents.
+              One PDF equals one GATHR document. Selected PDFs are validated and uploaded
+              individually to private storage without reading invoice contents.
             </p>
           </div>
 
