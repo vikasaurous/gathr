@@ -226,8 +226,8 @@ function Overview() {
           <ul className="border-t border-border">
             {(
               [
-                [FileStack, "Upload combined PDF", "/app/new"],
-                [Files, "Upload multiple invoices", "/app/new"],
+                [FileStack, "Create document batch", "/app/new"],
+                [Files, "Browse all batches", "/app/batches"],
                 [
                   ListChecks,
                   `Review pending (${pending.length})`,

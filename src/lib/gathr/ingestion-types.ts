@@ -1,5 +1,8 @@
 export const MAX_FILE_BYTES = 50 * 1024 * 1024;
 export const MAX_FILES_PER_BATCH = 25;
+export const MAX_FILENAME_LENGTH = 255;
+export const MAX_BATCH_NAME_LENGTH = 160;
+export const MAX_IDEMPOTENCY_KEY_LENGTH = 128;
 export const PDF_MIME_TYPE = "application/pdf";
 export const PDF_SIGNATURE_BYTES = [0x25, 0x50, 0x44, 0x46, 0x2d] as const;
 
@@ -40,6 +43,7 @@ export interface PersistedBatch {
 
 export interface PersistedBatchSummary extends PersistedBatch {
   documentCount: number;
+  pendingCount: number;
   uploadedCount: number;
   failedCount: number;
   totalSizeBytes: number;
@@ -84,6 +88,16 @@ export interface ClaimUploadResponse {
 export interface CreateBatchResponse {
   batch: PersistedBatch;
   documents: PersistedDocument[];
+  idempotentReplay?: boolean | undefined;
+}
+
+export interface BatchListResponse {
+  batches: PersistedBatchSummary[];
+}
+
+export interface BatchDetailResponse {
+  batch: PersistedBatch;
+  documents: PersistedDocument[];
 }
 
 export interface FinalizeBatchResponse {
@@ -91,12 +105,42 @@ export interface FinalizeBatchResponse {
   documents: PersistedDocument[];
 }
 
+export interface BatchValidationIssue {
+  index?: number | undefined;
+  field?: string | undefined;
+  message: string;
+}
+
+export class BatchCreateValidationError extends Error {
+  readonly issues: BatchValidationIssue[];
+
+  constructor(message: string, issues: BatchValidationIssue[] = [{ message }]) {
+    super(message);
+    this.name = "BatchCreateValidationError";
+    this.issues = issues;
+  }
+}
+
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const IDEMPOTENCY_KEY_REGEX = /^[A-Za-z0-9._:-]{1,128}$/;
+const PATH_TRAVERSAL_SEGMENT_REGEX = /(^|[\\/])\.\.([\\/]|$)/;
 
 export function isUuid(value: string): boolean {
   // Strict on purpose: Postgres rejects whitespace-padded uuids (22P02), so a padded
   // value must fail validation here (400) instead of reaching SQL (500).
   return UUID_REGEX.test(value);
+}
+
+export function validateIdempotencyKey(rawKey: string | null | undefined): string | undefined {
+  if (rawKey == null) return undefined;
+  const trimmed = rawKey.trim();
+  if (!trimmed || !IDEMPOTENCY_KEY_REGEX.test(trimmed)) {
+    throw new BatchCreateValidationError(
+      `Idempotency-Key must be 1–${MAX_IDEMPOTENCY_KEY_LENGTH} URL-safe ASCII characters.`,
+      [{ field: "Idempotency-Key", message: "Invalid Idempotency-Key header." }],
+    );
+  }
+  return trimmed;
 }
 
 export function normalizeMimeType(mimeType: string | null | undefined): string {
@@ -108,24 +152,49 @@ export function isPdfMimeType(mimeType: string | null | undefined): boolean {
   return normalizeMimeType(mimeType) === PDF_MIME_TYPE;
 }
 
-function stripControlChars(value: string): string {
+function isInvisibleOrBidiControlCode(code: number): boolean {
+  return (
+    code < 32 ||
+    code === 127 ||
+    (code >= 0x200b && code <= 0x200f) ||
+    (code >= 0x202a && code <= 0x202e) ||
+    (code >= 0x2066 && code <= 0x2069) ||
+    code === 0xfeff
+  );
+}
+
+export function stripControlChars(value: string): string {
   let out = "";
   for (let i = 0; i < value.length; i++) {
     const code = value.charCodeAt(i);
-    if (code >= 32 && code !== 127) {
+    if (!isInvisibleOrBidiControlCode(code)) {
       out += value[i];
     }
   }
   return out;
 }
 
+function truncatePreservingPdfExt(name: string, maxLength: number): string {
+  if (name.length <= maxLength) return name;
+  const lower = name.toLowerCase();
+  if (lower.endsWith(".pdf") && maxLength > 4) {
+    const ext = name.slice(-4);
+    const stem = name.slice(0, maxLength - 4).trimEnd();
+    return stem ? `${stem}${ext}` : name.slice(0, maxLength);
+  }
+  return name.slice(0, maxLength);
+}
+
 export function sanitizeOriginalFilename(rawName: string): string {
   const withoutControls = stripControlChars(rawName).trim();
   const segments = withoutControls.split(/[/\\]+/).filter(Boolean);
   const baseName = (segments[segments.length - 1] ?? "").trim();
-  const cleaned = baseName.replace(/[:*?"<>|]/g, "_").trim();
+  const cleaned = baseName
+    .replace(/[:*?"<>|;]/g, "_")
+    .replace(/\s+/g, " ")
+    .trim();
   if (!cleaned || cleaned === "." || cleaned === "..") return "";
-  return cleaned.slice(0, 255);
+  return truncatePreservingPdfExt(cleaned, MAX_FILENAME_LENGTH);
 }
 
 export function hasPdfExtension(filename: string): boolean {
@@ -143,11 +212,96 @@ export function hasPdfSignature(bytes: Uint8Array): boolean {
   return true;
 }
 
+/**
+ * Ensures every filename in a batch remains distinguishable without dropping its
+ * .pdf extension or exceeding 255 characters.
+ */
+export function disambiguateBatchFilenames(filenames: string[]): string[] {
+  const used = new Set<string>();
+  return filenames.map((raw) => {
+    const clean = sanitizeOriginalFilename(raw) || "document.pdf";
+    if (!used.has(clean.toLowerCase())) {
+      used.add(clean.toLowerCase());
+      return clean;
+    }
+
+    const hasExt = clean.toLowerCase().endsWith(".pdf") && clean.length > 4;
+    const ext = hasExt ? clean.slice(-4) : "";
+    const stem = hasExt ? clean.slice(0, -4) : clean;
+
+    let n = 2;
+    for (;;) {
+      const suffix = ` (${n})`;
+      const maxStemLen = MAX_FILENAME_LENGTH - ext.length - suffix.length;
+      const truncatedStem = stem.slice(0, Math.max(1, maxStemLen)).trimEnd() || "doc";
+      const candidate = `${truncatedStem}${suffix}${ext}`;
+      if (!used.has(candidate.toLowerCase())) {
+        used.add(candidate.toLowerCase());
+        return candidate;
+      }
+      n++;
+    }
+  });
+}
+
+/**
+ * Fast synchronous client validation for metadata (extension, MIME, size, filename).
+ * Magic-byte signature validation runs separately via `hasValidPdfHeader`.
+ */
+export function checkPdfFileMetadata(file: {
+  name: string;
+  type?: string | undefined;
+  size: number;
+}): string | undefined {
+  if (typeof file.name !== "string" || !file.name.trim()) {
+    return "File must have a valid filename.";
+  }
+  const cleanName = sanitizeOriginalFilename(file.name);
+  if (!cleanName || !hasPdfExtension(cleanName)) {
+    return "Only PDF (.pdf) files are supported.";
+  }
+  const normalizedMime = normalizeMimeType(file.type);
+  if (normalizedMime && normalizedMime !== PDF_MIME_TYPE) {
+    return "Only application/pdf files are supported.";
+  }
+  if (!Number.isFinite(file.size) || file.size <= 0) {
+    return "File is empty (0 bytes).";
+  }
+  if (file.size > MAX_FILE_BYTES) {
+    return "File exceeds the 50 MiB limit.";
+  }
+  return undefined;
+}
+
+async function readBlobBytes(blob: Blob): Promise<ArrayBuffer> {
+  if (typeof blob.arrayBuffer === "function") {
+    return blob.arrayBuffer();
+  }
+  return new Promise<ArrayBuffer>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (reader.result instanceof ArrayBuffer) {
+        resolve(reader.result);
+      } else {
+        reject(new Error("Failed to read file bytes."));
+      }
+    };
+    reader.onerror = () => reject(reader.error ?? new Error("Failed to read file bytes."));
+    reader.readAsArrayBuffer(blob);
+  });
+}
+
+export async function hasValidPdfHeader(file: Blob): Promise<boolean> {
+  if (file.size < PDF_SIGNATURE_BYTES.length) return false;
+  const buffer = await readBlobBytes(file.slice(0, PDF_SIGNATURE_BYTES.length));
+  return hasPdfSignature(new Uint8Array(buffer));
+}
+
 export function sanitizeDownloadFilename(filename: string): string {
   const cleaned = sanitizeOriginalFilename(filename).replace(/;/g, "_");
   if (!cleaned) return "document.pdf";
   const withExt = cleaned.toLowerCase().endsWith(".pdf") ? cleaned : `${cleaned}.pdf`;
-  return withExt.slice(0, 255);
+  return truncatePreservingPdfExt(withExt, MAX_FILENAME_LENGTH);
 }
 
 export function toAsciiHeaderFilename(filename: string): string {
@@ -188,13 +342,15 @@ export function buildStorageKey(ids: {
 
 export function validateCreateBatchPayload(data: unknown): CreateBatchRequest {
   if (!data || typeof data !== "object" || Array.isArray(data)) {
-    throw new Error("Invalid request body. Expected a JSON object.");
+    throw new BatchCreateValidationError("Invalid request body. Expected a JSON object.");
   }
 
   const allowedKeys = new Set(["name", "files"]);
   for (const key of Object.keys(data)) {
     if (!allowedKeys.has(key)) {
-      throw new Error(`Unexpected field in request payload: "${key}".`);
+      throw new BatchCreateValidationError(`Unexpected field in request payload: "${key}".`, [
+        { field: key, message: `Unexpected field "${key}".` },
+      ]);
     }
   }
 
@@ -203,21 +359,37 @@ export function validateCreateBatchPayload(data: unknown): CreateBatchRequest {
   let name: string | undefined = undefined;
   if (record.name !== undefined) {
     if (typeof record.name !== "string") {
-      throw new Error("Batch name must be a string.");
+      throw new BatchCreateValidationError("Batch name must be a string.", [
+        { field: "name", message: "Batch name must be a string." },
+      ]);
     }
-    name = record.name;
+    const cleanBatchName = stripControlChars(record.name).trim();
+    if (cleanBatchName.length > MAX_BATCH_NAME_LENGTH) {
+      throw new BatchCreateValidationError(
+        `Batch name must be ${MAX_BATCH_NAME_LENGTH} characters or fewer.`,
+        [{ field: "name", message: `Batch name exceeds ${MAX_BATCH_NAME_LENGTH} characters.` }],
+      );
+    }
+    name = cleanBatchName || undefined;
   }
 
   if (!Array.isArray(record.files)) {
-    throw new Error("Files must be an array.");
+    throw new BatchCreateValidationError("Files must be an array.", [
+      { field: "files", message: "Files must be an array." },
+    ]);
   }
 
   if (record.files.length === 0) {
-    throw new Error("At least one PDF file is required.");
+    throw new BatchCreateValidationError("At least one PDF file is required.", [
+      { field: "files", message: "At least one PDF file is required." },
+    ]);
   }
 
   if (record.files.length > MAX_FILES_PER_BATCH) {
-    throw new Error(`A batch cannot contain more than ${MAX_FILES_PER_BATCH} files.`);
+    throw new BatchCreateValidationError(
+      `A batch cannot contain more than ${MAX_FILES_PER_BATCH} files.`,
+      [{ field: "files", message: `Maximum ${MAX_FILES_PER_BATCH} files allowed per batch.` }],
+    );
   }
 
   const fileKeys = new Set(["filename", "mimeType", "sizeBytes"]);
@@ -226,35 +398,55 @@ export function validateCreateBatchPayload(data: unknown): CreateBatchRequest {
   for (let i = 0; i < record.files.length; i++) {
     const file = record.files[i];
     if (!file || typeof file !== "object" || Array.isArray(file)) {
-      throw new Error(`File at index ${i} must be an object.`);
+      throw new BatchCreateValidationError(`File at index ${i} must be an object.`, [
+        { index: i, message: "File entry must be an object." },
+      ]);
     }
 
     for (const key of Object.keys(file)) {
       if (!fileKeys.has(key)) {
-        throw new Error(`Unexpected field in file at index ${i}: "${key}".`);
+        throw new BatchCreateValidationError(`Unexpected field in file at index ${i}: "${key}".`, [
+          { index: i, field: key, message: `Unexpected field "${key}".` },
+        ]);
       }
     }
 
     const fileRec = file as { filename?: unknown; mimeType?: unknown; sizeBytes?: unknown };
     if (typeof fileRec.filename !== "string" || !fileRec.filename.trim()) {
-      throw new Error(`File at index ${i} must have a valid filename.`);
+      throw new BatchCreateValidationError(`File at index ${i} must have a valid filename.`, [
+        { index: i, field: "filename", message: "Filename is required." },
+      ]);
+    }
+
+    if (fileRec.filename.includes("\0") || PATH_TRAVERSAL_SEGMENT_REGEX.test(fileRec.filename)) {
+      throw new BatchCreateValidationError(
+        `File at index ${i} contains an invalid path sequence.`,
+        [{ index: i, field: "filename", message: "Invalid path sequence in filename." }],
+      );
     }
 
     const cleanName = sanitizeOriginalFilename(fileRec.filename);
     if (!cleanName || !hasPdfExtension(cleanName)) {
-      throw new Error(`File "${fileRec.filename}" is not a valid PDF file (.pdf).`);
+      throw new BatchCreateValidationError(
+        `File "${cleanName || "unnamed"}" is not a valid PDF file (.pdf).`,
+        [{ index: i, field: "filename", message: "Only valid .pdf filenames are allowed." }],
+      );
     }
 
     let mimeType: string | undefined = undefined;
     if (fileRec.mimeType !== undefined) {
       if (typeof fileRec.mimeType !== "string") {
-        throw new Error(`File at index ${i} mimeType must be a string.`);
+        throw new BatchCreateValidationError(`File at index ${i} mimeType must be a string.`, [
+          { index: i, field: "mimeType", message: "mimeType must be a string." },
+        ]);
       }
       const norm = normalizeMimeType(fileRec.mimeType);
       if (norm && norm !== PDF_MIME_TYPE) {
-        throw new Error("Only application/pdf files are supported.");
+        throw new BatchCreateValidationError("Only application/pdf files are supported.", [
+          { index: i, field: "mimeType", message: "Only application/pdf files are supported." },
+        ]);
       }
-      mimeType = fileRec.mimeType;
+      mimeType = norm || undefined;
     }
 
     if (
@@ -262,11 +454,15 @@ export function validateCreateBatchPayload(data: unknown): CreateBatchRequest {
       !Number.isSafeInteger(fileRec.sizeBytes) ||
       fileRec.sizeBytes <= 0
     ) {
-      throw new Error(`File "${fileRec.filename}" has an invalid size.`);
+      throw new BatchCreateValidationError(`File "${cleanName}" has an invalid size.`, [
+        { index: i, field: "sizeBytes", message: "File size must be a positive integer." },
+      ]);
     }
 
     if (fileRec.sizeBytes > MAX_FILE_BYTES) {
-      throw new Error(`File "${fileRec.filename}" exceeds the 50 MB limit.`);
+      throw new BatchCreateValidationError(`File "${cleanName}" exceeds the 50 MiB limit.`, [
+        { index: i, field: "sizeBytes", message: "File exceeds the 50 MiB limit." },
+      ]);
     }
 
     files.push({
@@ -279,13 +475,27 @@ export function validateCreateBatchPayload(data: unknown): CreateBatchRequest {
   return { name, files };
 }
 
+export async function computeCreateBatchRequestHash(payload: CreateBatchRequest): Promise<string> {
+  const canonical = JSON.stringify({
+    name: payload.name ? stripControlChars(payload.name).trim() : "",
+    files: payload.files.map((f) => ({
+      filename: sanitizeOriginalFilename(f.filename),
+      mimeType: normalizeMimeType(f.mimeType),
+      sizeBytes: f.sizeBytes,
+    })),
+  });
+  const encoded = new TextEncoder().encode(canonical);
+  const digest = await globalThis.crypto.subtle.digest("SHA-256", encoded);
+  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 export function deriveBatchName(rawName: string | undefined, filenames: string[]): string {
   const trimmed = stripControlChars(rawName ?? "").trim();
-  if (trimmed) return trimmed.slice(0, 160);
+  if (trimmed) return trimmed.slice(0, MAX_BATCH_NAME_LENGTH);
   if (filenames.length === 1) {
     const first = sanitizeOriginalFilename(filenames[0] ?? "");
     const base = first.replace(/\.pdf$/i, "").trim();
-    if (base) return base.slice(0, 160);
+    if (base) return base.slice(0, MAX_BATCH_NAME_LENGTH);
   }
   const dateLabel = new Date().toLocaleDateString("en-GB", { timeZone: "UTC" });
   return `${filenames.length} PDF${filenames.length === 1 ? "" : "s"} · ${dateLabel}`;
