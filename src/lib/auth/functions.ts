@@ -69,6 +69,8 @@ export interface LinkedAccountSummary {
 export const listAccountsFn = createServerFn({ method: "GET" }).handler(
   async (): Promise<LinkedAccountSummary[]> => {
     try {
+      const session = await resolveSession();
+      if (!session) return [];
       const headers = getRequestHeaders();
       const accounts = await auth.api.listUserAccounts({ headers });
       if (!accounts || !Array.isArray(accounts)) return [];

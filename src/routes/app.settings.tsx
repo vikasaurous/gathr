@@ -151,6 +151,7 @@ function Settings() {
     }
   }
 
+  const hasCredentialAccount = connectedProviders.includes("credential");
   const isGoogleConnected = connectedProviders.includes("google");
 
   return (
@@ -181,12 +182,24 @@ function Settings() {
           <div className="flex items-center justify-between rounded-md border border-border bg-surface px-3.5 py-3 text-[13.5px]">
             <div>
               <p className="font-medium text-foreground">Email & password</p>
-              <p className="text-[12px] text-muted-foreground">Workspace credentials</p>
+              <p className="text-[12px] text-muted-foreground">
+                {loadingAccounts || hasCredentialAccount
+                  ? "Workspace credentials"
+                  : "Signed in with a linked provider"}
+              </p>
             </div>
-            <span className="inline-flex items-center gap-1 rounded-sm border border-[#425B51]/30 bg-[#425B51]/10 px-2 py-0.5 text-[11px] font-medium text-[#425B51]">
-              <Check className="size-3" />
-              Active
-            </span>
+            {loadingAccounts ? (
+              <Loader2 className="size-4 animate-spin text-muted-foreground" />
+            ) : hasCredentialAccount ? (
+              <span className="inline-flex items-center gap-1 rounded-sm border border-[#425B51]/30 bg-[#425B51]/10 px-2 py-0.5 text-[11px] font-medium text-[#425B51]">
+                <Check className="size-3" />
+                Active
+              </span>
+            ) : (
+              <span className="inline-flex items-center rounded-sm border border-border px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                Not set
+              </span>
+            )}
           </div>
 
           {/* Google Provider */}
