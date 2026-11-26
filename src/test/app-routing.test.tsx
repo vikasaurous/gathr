@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   RouterProvider,
@@ -11,12 +12,31 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const authMocks = vi.hoisted(() => ({
   getSessionFn: vi.fn(),
-  useSession: vi.fn(() => {
+  useSession: vi.fn((..._args: unknown[]) => {
     throw new Error("useSession must not be called in AppLayout or Overview");
   }),
   signInEmail: vi.fn(),
   signInSocial: vi.fn(),
   signOut: vi.fn(),
+}));
+
+// Keep server-only modules mocked so importing routes/functions never spins up
+// Better Auth's Neon DB pool in jsdom, while keeping real toClientSession().
+vi.mock("@tanstack/react-start/server-only", () => ({}));
+vi.mock("@tanstack/react-start/server", () => ({
+  getRequestHeaders: vi.fn(() => new Headers()),
+  setResponseHeader: vi.fn(),
+}));
+vi.mock("@neondatabase/serverless", () => ({
+  neon: vi.fn(),
+  Pool: vi.fn(),
+  neonConfig: {},
+}));
+vi.mock("@/lib/auth/server", () => ({
+  auth: {
+    handler: vi.fn(),
+    api: { getSession: vi.fn(), listUserAccounts: vi.fn() },
+  },
 }));
 
 vi.mock("@/lib/auth/functions", async (importOriginal) => {
@@ -29,6 +49,22 @@ vi.mock("@/lib/auth/functions", async (importOriginal) => {
 
 vi.mock("@/lib/plan/functions", () => ({
   getMyPlanFn: vi.fn(async () => ({ plan: "free" })),
+}));
+
+// @radix-ui/react-select portals into an unattached DocumentFragment and syncs
+// a hidden <select>, which leaves React 19 / TanStack Router transitions stuck
+// across subsequent tests in jsdom@20. Stubbing UI primitives keeps routing tests fast.
+vi.mock("@/components/ui/select", () => ({
+  Select: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  SelectGroup: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  SelectValue: () => null,
+  SelectTrigger: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  SelectContent: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  SelectLabel: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  SelectItem: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  SelectSeparator: () => null,
+  SelectScrollUpButton: () => null,
+  SelectScrollDownButton: () => null,
 }));
 
 vi.mock("@/lib/auth/client", () => ({
@@ -87,7 +123,7 @@ function createTestRouter(initialUrl: string) {
     router: createRouter({
       routeTree,
       history: createMemoryHistory({ initialEntries: [initialUrl] }),
-      context: { queryClient, session: undefined },
+      context: { queryClient },
       defaultPreloadStaleTime: 0,
     }),
   };
@@ -223,7 +259,10 @@ describe("App routing, route protection, and session deduplication", () => {
     expect(authMocks.useSession).not.toHaveBeenCalled();
 
     await act(async () => {
-      await router.navigate({ to: "/app/settings" });
+      await router.navigate({
+        to: "/app/settings",
+        search: { linked: undefined, error: undefined },
+      });
     });
     expect(await screen.findByText(/Connected accounts/i)).toBeInTheDocument();
     expect(authMocks.getSessionFn).toHaveBeenCalledTimes(4);
