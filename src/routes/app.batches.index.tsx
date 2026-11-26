@@ -2,7 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { ArrowUpDown, Plus, RefreshCw, Search } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { EmptyState, FilterTabs, PageHeader } from "@/components/gathr/common";
-import { IngestionBatchStatusPill } from "@/components/gathr/status";
+import { IngestionBatchStatusPill, Pill } from "@/components/gathr/status";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -234,8 +234,9 @@ function Batches() {
                     {b.failedCount > 0 ? ` · ${b.failedCount} failed` : ""}
                   </span>
                 </span>
-                <span className="hidden md:block">
+                <span className="hidden md:flex md:flex-wrap md:items-center md:gap-1.5">
                   <IngestionBatchStatusPill status={b.status} pendingOnly={pendingOnly} />
+                  {b.finalizedAt && <Pill tone="neutral">Finalized</Pill>}
                 </span>
                 <span className="hidden justify-end md:flex">
                   <Button variant="outline" size="sm" asChild>
@@ -244,8 +245,9 @@ function Batches() {
                     </Link>
                   </Button>
                 </span>
-                <span className="col-span-2 flex items-center gap-3 md:hidden">
+                <span className="col-span-2 flex flex-wrap items-center gap-3 md:hidden">
                   <IngestionBatchStatusPill status={b.status} pendingOnly={pendingOnly} />
+                  {b.finalizedAt && <Pill tone="neutral">Finalized</Pill>}
                   <span className="num text-[11px] text-muted-foreground">
                     {b.documentCount} documents · {formatDate(b.createdAt)}
                   </span>

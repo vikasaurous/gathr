@@ -2,9 +2,19 @@ import "./lib/error-capture";
 
 import { consumeLastCapturedError } from "./lib/error-capture";
 import { renderErrorPage } from "./lib/error-page";
+import { runScheduledMaintenance } from "./lib/server/maintenance";
 
 type ServerEntry = {
   fetch: (request: Request, env: unknown, ctx: unknown) => Promise<Response> | Response;
+};
+
+type CloudflareScheduledController = {
+  cron?: string | undefined;
+  scheduledTime?: number | undefined;
+};
+
+type CloudflareExecutionContext = {
+  waitUntil?: ((promise: Promise<unknown>) => void) | undefined;
 };
 
 let serverEntryPromise: Promise<ServerEntry> | undefined;
@@ -59,6 +69,23 @@ export default {
         status: 500,
         headers: { "content-type": "text/html; charset=utf-8" },
       });
+    }
+  },
+  async scheduled(
+    controller: CloudflareScheduledController | undefined,
+    env: unknown,
+    ctx: CloudflareExecutionContext | undefined,
+  ) {
+    const task = runScheduledMaintenance({
+      env: (env as Record<string, unknown> | undefined) ?? undefined,
+      cron: controller?.cron,
+    }).catch((error) => {
+      console.error("[gathr:scheduled] maintenance failed:", error);
+    });
+    if (ctx && typeof ctx.waitUntil === "function") {
+      ctx.waitUntil(task);
+    } else {
+      await task;
     }
   },
 };

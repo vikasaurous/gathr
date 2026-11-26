@@ -38,6 +38,7 @@ export interface OwnedBatchRow {
   workspaceId: string;
   name: string;
   status: BatchIngestionStatus;
+  finalizedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -83,6 +84,7 @@ export function mapBatchRow(row: Record<string, unknown>): OwnedBatchRow {
     workspaceId: String(row["workspace_id"]),
     name: String(row["name"]),
     status: String(row["status"]) as BatchIngestionStatus,
+    finalizedAt: toNullableIsoString(row["finalized_at"]),
     createdAt: toIsoString(row["created_at"]),
     updatedAt: toIsoString(row["updated_at"]),
   };
@@ -304,7 +306,7 @@ export async function requireOwnedBatch(
   }
 
   const rows = await sql.query(
-    `SELECT "id", "workspace_id", "name", "status", "created_at", "updated_at"
+    `SELECT "id", "workspace_id", "name", "status", "finalized_at", "created_at", "updated_at"
      FROM "batches"
      WHERE "id" = $1 AND "workspace_id" = $2
      LIMIT 1`,

@@ -38,8 +38,8 @@ export function isTransientConnectError(error: unknown): boolean {
  * cannot be shared across requests. Fails clearly when the database is not
  * configured instead of falling back to anything.
  */
-export function getSql(request?: Request): SqlClient {
-  const url = getServerEnv(request).DATABASE_URL;
+export function getSql(request?: Request, directEnv?: Record<string, unknown>): SqlClient {
+  const url = getServerEnv(request, directEnv).DATABASE_URL;
   if (!url) {
     throw new HttpError(503, "Database is not configured.", "DB_NOT_CONFIGURED");
   }

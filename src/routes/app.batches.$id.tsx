@@ -87,7 +87,9 @@ function Review() {
   const search = Route.useSearch();
   const navigate = useNavigate({ from: Route.fullPath });
   if (isUuid(id)) {
-    return <PersistedBatchView batchId={id} />;
+    return (
+      <PersistedBatchView batchId={id} onDeleted={() => void navigate({ to: "/app/batches" })} />
+    );
   }
   return (
     <BatchReviewWorkspace

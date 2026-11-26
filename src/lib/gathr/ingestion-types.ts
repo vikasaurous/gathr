@@ -37,6 +37,7 @@ export interface PersistedBatch {
   id: string;
   name: string;
   status: BatchIngestionStatus;
+  finalizedAt?: string | null | undefined;
   createdAt: string;
   updatedAt: string;
 }
@@ -84,6 +85,12 @@ export interface ClaimUploadResponse {
   leaseExpiresAt: string;
 }
 
+export interface HeartbeatUploadResponse {
+  documentId: string;
+  attemptId: string;
+  leaseExpiresAt: string;
+}
+
 export interface UploadDocumentResponse {
   document: PersistedDocument;
   batch: PersistedBatch;
@@ -93,6 +100,7 @@ export interface CancelUploadResponse {
   document: PersistedDocument;
   batch: PersistedBatch;
   cancelled: boolean;
+  serverConfirmed?: boolean | undefined;
 }
 
 export interface CreateBatchResponse {
@@ -110,9 +118,20 @@ export interface BatchDetailResponse {
   documents: PersistedDocument[];
 }
 
+export interface FinalizeBatchRequest {
+  allowIncomplete?: boolean | undefined;
+}
+
 export interface FinalizeBatchResponse {
   batch: PersistedBatch;
   documents: PersistedDocument[];
+  alreadyFinalized?: boolean | undefined;
+}
+
+export interface DeleteBatchResponse {
+  deleted: boolean;
+  batchId: string;
+  cleanupJobsQueued: number;
 }
 
 export interface BatchValidationIssue {
@@ -518,6 +537,44 @@ export function deriveBatchName(rawName: string | undefined, filenames: string[]
   }
   const dateLabel = new Date().toLocaleDateString("en-GB", { timeZone: "UTC" });
   return `${filenames.length} PDF${filenames.length === 1 ? "" : "s"} · ${dateLabel}`;
+}
+
+export const ALLOWED_BATCH_STATUS_TRANSITIONS: Record<
+  BatchIngestionStatus,
+  readonly BatchIngestionStatus[]
+> = {
+  uploading: ["uploading", "uploaded", "partial", "failed"],
+  uploaded: ["uploaded"],
+  partial: ["partial", "uploading", "uploaded", "failed"],
+  failed: ["failed", "uploading", "partial", "uploaded"],
+};
+
+export const ALLOWED_DOCUMENT_UPLOAD_TRANSITIONS: Record<
+  DocumentUploadStatus,
+  readonly DocumentUploadStatus[]
+> = {
+  pending_upload: ["uploading", "failed"],
+  uploading: ["uploading", "uploaded", "failed"],
+  uploaded: [],
+  failed: ["uploading"],
+};
+
+export function isValidBatchTransition(
+  from: BatchIngestionStatus,
+  to: BatchIngestionStatus,
+  isFinalized: boolean,
+): boolean {
+  if (isFinalized) {
+    return to !== "uploading" && from === to;
+  }
+  return ALLOWED_BATCH_STATUS_TRANSITIONS[from].includes(to);
+}
+
+export function isValidDocumentTransition(
+  from: DocumentUploadStatus,
+  to: DocumentUploadStatus,
+): boolean {
+  return ALLOWED_DOCUMENT_UPLOAD_TRANSITIONS[from].includes(to);
 }
 
 export function computeBatchFinalStatus(

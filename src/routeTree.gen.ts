@@ -32,8 +32,10 @@ import { Route as ApiAuthSplatRouteImport } from './routes/api.auth.$'
 import { Route as ApiBatchesIdRouteImport } from './routes/api.batches.$id'
 import { Route as AppBatchesIndexRouteImport } from './routes/app.batches.index'
 import { Route as AppBatchesIdRouteImport } from './routes/app.batches.$id'
+import { Route as ApiBatchesIdFinalizeRouteImport } from './routes/api.batches.$id.finalize'
 import { Route as ApiDocumentsIdCancelRouteImport } from './routes/api.documents.$id.cancel'
 import { Route as ApiDocumentsIdContentRouteImport } from './routes/api.documents.$id.content'
+import { Route as ApiDocumentsIdHeartbeatRouteImport } from './routes/api.documents.$id.heartbeat'
 import { Route as ApiDocumentsIdUploadRouteImport } from './routes/api.documents.$id.upload'
 
 const IndexRoute = IndexRouteImport.update({
@@ -151,6 +153,11 @@ const AppBatchesIdRoute = AppBatchesIdRouteImport.update({
   path: '/batches/$id',
   getParentRoute: () => AppRoute,
 } as any)
+const ApiBatchesIdFinalizeRoute = ApiBatchesIdFinalizeRouteImport.update({
+  id: '/finalize',
+  path: '/finalize',
+  getParentRoute: () => ApiBatchesIdRoute,
+} as any)
 const ApiDocumentsIdCancelRoute = ApiDocumentsIdCancelRouteImport.update({
   id: '/api/documents/$id/cancel',
   path: '/api/documents/$id/cancel',
@@ -159,6 +166,11 @@ const ApiDocumentsIdCancelRoute = ApiDocumentsIdCancelRouteImport.update({
 const ApiDocumentsIdContentRoute = ApiDocumentsIdContentRouteImport.update({
   id: '/api/documents/$id/content',
   path: '/api/documents/$id/content',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiDocumentsIdHeartbeatRoute = ApiDocumentsIdHeartbeatRouteImport.update({
+  id: '/api/documents/$id/heartbeat',
+  path: '/api/documents/$id/heartbeat',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiDocumentsIdUploadRoute = ApiDocumentsIdUploadRouteImport.update({
@@ -188,11 +200,13 @@ export interface FileRoutesByFullPath {
   '/app/settings': typeof AppSettingsRoute
   '/app/': typeof AppIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
-  '/api/batches/$id': typeof ApiBatchesIdRoute
+  '/api/batches/$id': typeof ApiBatchesIdRouteWithChildren
   '/app/batches/$id': typeof AppBatchesIdRoute
   '/app/batches/': typeof AppBatchesIndexRoute
+  '/api/batches/$id/finalize': typeof ApiBatchesIdFinalizeRoute
   '/api/documents/$id/cancel': typeof ApiDocumentsIdCancelRoute
   '/api/documents/$id/content': typeof ApiDocumentsIdContentRoute
+  '/api/documents/$id/heartbeat': typeof ApiDocumentsIdHeartbeatRoute
   '/api/documents/$id/upload': typeof ApiDocumentsIdUploadRoute
 }
 export interface FileRoutesByTo {
@@ -215,11 +229,13 @@ export interface FileRoutesByTo {
   '/app/settings': typeof AppSettingsRoute
   '/app': typeof AppIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
-  '/api/batches/$id': typeof ApiBatchesIdRoute
+  '/api/batches/$id': typeof ApiBatchesIdRouteWithChildren
   '/app/batches/$id': typeof AppBatchesIdRoute
   '/app/batches': typeof AppBatchesIndexRoute
+  '/api/batches/$id/finalize': typeof ApiBatchesIdFinalizeRoute
   '/api/documents/$id/cancel': typeof ApiDocumentsIdCancelRoute
   '/api/documents/$id/content': typeof ApiDocumentsIdContentRoute
+  '/api/documents/$id/heartbeat': typeof ApiDocumentsIdHeartbeatRoute
   '/api/documents/$id/upload': typeof ApiDocumentsIdUploadRoute
 }
 export interface FileRoutesById {
@@ -244,11 +260,13 @@ export interface FileRoutesById {
   '/app/settings': typeof AppSettingsRoute
   '/app/': typeof AppIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
-  '/api/batches/$id': typeof ApiBatchesIdRoute
+  '/api/batches/$id': typeof ApiBatchesIdRouteWithChildren
   '/app/batches/$id': typeof AppBatchesIdRoute
   '/app/batches/': typeof AppBatchesIndexRoute
+  '/api/batches/$id/finalize': typeof ApiBatchesIdFinalizeRoute
   '/api/documents/$id/cancel': typeof ApiDocumentsIdCancelRoute
   '/api/documents/$id/content': typeof ApiDocumentsIdContentRoute
+  '/api/documents/$id/heartbeat': typeof ApiDocumentsIdHeartbeatRoute
   '/api/documents/$id/upload': typeof ApiDocumentsIdUploadRoute
 }
 export interface FileRouteTypes {
@@ -277,8 +295,10 @@ export interface FileRouteTypes {
     | '/api/batches/$id'
     | '/app/batches/$id'
     | '/app/batches/'
+    | '/api/batches/$id/finalize'
     | '/api/documents/$id/cancel'
     | '/api/documents/$id/content'
+    | '/api/documents/$id/heartbeat'
     | '/api/documents/$id/upload'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -304,8 +324,10 @@ export interface FileRouteTypes {
     | '/api/batches/$id'
     | '/app/batches/$id'
     | '/app/batches'
+    | '/api/batches/$id/finalize'
     | '/api/documents/$id/cancel'
     | '/api/documents/$id/content'
+    | '/api/documents/$id/heartbeat'
     | '/api/documents/$id/upload'
   id:
     | '__root__'
@@ -332,8 +354,10 @@ export interface FileRouteTypes {
     | '/api/batches/$id'
     | '/app/batches/$id'
     | '/app/batches/'
+    | '/api/batches/$id/finalize'
     | '/api/documents/$id/cancel'
     | '/api/documents/$id/content'
+    | '/api/documents/$id/heartbeat'
     | '/api/documents/$id/upload'
   fileRoutesById: FileRoutesById
 }
@@ -356,6 +380,7 @@ export interface RootRouteChildren {
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   ApiDocumentsIdCancelRoute: typeof ApiDocumentsIdCancelRoute
   ApiDocumentsIdContentRoute: typeof ApiDocumentsIdContentRoute
+  ApiDocumentsIdHeartbeatRoute: typeof ApiDocumentsIdHeartbeatRoute
   ApiDocumentsIdUploadRoute: typeof ApiDocumentsIdUploadRoute
 }
 
@@ -522,6 +547,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppBatchesIdRouteImport
       parentRoute: typeof AppRoute
     }
+    '/api/batches/$id/finalize': {
+      id: '/api/batches/$id/finalize'
+      path: '/finalize'
+      fullPath: '/api/batches/$id/finalize'
+      preLoaderRoute: typeof ApiBatchesIdFinalizeRouteImport
+      parentRoute: typeof ApiBatchesIdRoute
+    }
     '/api/documents/$id/cancel': {
       id: '/api/documents/$id/cancel'
       path: '/api/documents/$id/cancel'
@@ -534,6 +566,13 @@ declare module '@tanstack/react-router' {
       path: '/api/documents/$id/content'
       fullPath: '/api/documents/$id/content'
       preLoaderRoute: typeof ApiDocumentsIdContentRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/documents/$id/heartbeat': {
+      id: '/api/documents/$id/heartbeat'
+      path: '/api/documents/$id/heartbeat'
+      fullPath: '/api/documents/$id/heartbeat'
+      preLoaderRoute: typeof ApiDocumentsIdHeartbeatRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/documents/$id/upload': {
@@ -566,12 +605,24 @@ const AppRouteChildren: AppRouteChildren = {
 
 const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
 
+interface ApiBatchesIdRouteChildren {
+  ApiBatchesIdFinalizeRoute: typeof ApiBatchesIdFinalizeRoute
+}
+
+const ApiBatchesIdRouteChildren: ApiBatchesIdRouteChildren = {
+  ApiBatchesIdFinalizeRoute: ApiBatchesIdFinalizeRoute,
+}
+
+const ApiBatchesIdRouteWithChildren = ApiBatchesIdRoute._addFileChildren(
+  ApiBatchesIdRouteChildren,
+)
+
 interface ApiBatchesRouteChildren {
-  ApiBatchesIdRoute: typeof ApiBatchesIdRoute
+  ApiBatchesIdRoute: typeof ApiBatchesIdRouteWithChildren
 }
 
 const ApiBatchesRouteChildren: ApiBatchesRouteChildren = {
-  ApiBatchesIdRoute: ApiBatchesIdRoute,
+  ApiBatchesIdRoute: ApiBatchesIdRouteWithChildren,
 }
 
 const ApiBatchesRouteWithChildren = ApiBatchesRoute._addFileChildren(
@@ -597,6 +648,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   ApiDocumentsIdCancelRoute: ApiDocumentsIdCancelRoute,
   ApiDocumentsIdContentRoute: ApiDocumentsIdContentRoute,
+  ApiDocumentsIdHeartbeatRoute: ApiDocumentsIdHeartbeatRoute,
   ApiDocumentsIdUploadRoute: ApiDocumentsIdUploadRoute,
 }
 export const routeTree = rootRouteImport

@@ -410,4 +410,185 @@ describe("PersistedBatchView upload progress, cancel, retry, re-attach, and priv
       expect(screen.getByText(/does not match this document record/i)).toBeInTheDocument();
     });
   });
+
+  it("distinguishes client abort from server cancellation confirmation and supports Confirm cancel recovery", async () => {
+    const batchId = "11111111-1111-4111-1111-111111111111";
+    const docId = "22222222-2222-4222-2222-222222222222";
+    const f1 = makePdfFile("cancel-test.pdf");
+    const docs = [makeDoc(docId, "cancel-test.pdf", f1.size)];
+
+    let cancelAttempts = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>().mockImplementation(async (input) => {
+        const url =
+          typeof input === "string"
+            ? input
+            : input instanceof Request
+              ? input.url
+              : input.toString();
+        if (url.endsWith(`/api/batches/${batchId}`)) {
+          return new Response(JSON.stringify({ batch: makeBatch("uploading"), documents: docs }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        if (url.endsWith(`/api/documents/${docId}/cancel`)) {
+          cancelAttempts += 1;
+          if (cancelAttempts === 1) {
+            return new Response(JSON.stringify({ error: "Upstream unavailable" }), { status: 503 });
+          }
+          return new Response(
+            JSON.stringify({
+              document: makeDoc(docId, "cancel-test.pdf", f1.size, "failed", "Upload cancelled."),
+              batch: makeBatch("failed"),
+              cancelled: true,
+              serverConfirmed: true,
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+        return new Response("{}", { status: 404 });
+      }),
+    );
+
+    class MockAbortXhr {
+      upload = { onprogress: null as ((e: ProgressEvent) => void) | null };
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      onabort: (() => void) | null = null;
+      open() {}
+      setRequestHeader() {}
+      send() {}
+      abort() {
+        this.onabort?.();
+      }
+    }
+    vi.stubGlobal("XMLHttpRequest", MockAbortXhr as unknown as typeof XMLHttpRequest);
+
+    uploadOrchestrator.registerBatchFiles(batchId, [{ documentId: docId, file: f1 }]);
+    render(<PersistedBatchView batchId={batchId} />);
+
+    const cancelBtn = await screen.findByRole("button", {
+      name: "Cancel upload for cancel-test.pdf",
+    });
+    fireEvent.click(cancelBtn);
+
+    // First cancel call failed -> UI explicitly states browser aborted but server unconfirmed
+    await waitFor(() => {
+      expect(
+        screen.getByText(
+          /Browser upload aborted, but server cancellation could not be confirmed yet/i,
+        ),
+      ).toBeInTheDocument();
+    });
+    const confirmCancelBtn = screen.getByRole("button", {
+      name: "Confirm server cancellation for cancel-test.pdf",
+    });
+    fireEvent.click(confirmCancelBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText("Cancellation confirmed by server.")).toBeInTheDocument();
+    });
+  });
+
+  it("handles batch finalization conflicts, incomplete batch confirmation, sealed state, and batch deletion", async () => {
+    const batchId = "11111111-1111-4111-1111-111111111111";
+    const doc1Id = "22222222-2222-4222-2222-222222222222";
+    const doc2Id = "33333333-3333-4333-8333-333333333333";
+    const docs = [
+      makeDoc(doc1Id, "done.pdf", 40, "uploaded"),
+      makeDoc(doc2Id, "pending.pdf", 40, "pending_upload"),
+    ];
+
+    let finalizeCalls = 0;
+    const onDeleted = vi.fn();
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>().mockImplementation(async (input, init) => {
+        const url =
+          typeof input === "string"
+            ? input
+            : input instanceof Request
+              ? input.url
+              : input.toString();
+        if (url.endsWith(`/api/batches/${batchId}`) && (!init?.method || init.method === "GET")) {
+          return new Response(
+            JSON.stringify({
+              batch: { ...makeBatch("uploading"), finalizedAt: null },
+              documents: docs,
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+        if (url.endsWith(`/api/batches/${batchId}/finalize`)) {
+          finalizeCalls += 1;
+          if (finalizeCalls === 1) {
+            return new Response(
+              JSON.stringify({
+                error: "Some documents in this batch have not finished uploading yet.",
+                code: "BATCH_HAS_UNRESOLVED_DOCUMENTS",
+              }),
+              { status: 409, headers: { "Content-Type": "application/json" } },
+            );
+          }
+          return new Response(
+            JSON.stringify({
+              batch: {
+                ...makeBatch("partial"),
+                finalizedAt: "2026-11-26T12:00:00Z",
+              },
+              documents: [
+                docs[0],
+                makeDoc(
+                  doc2Id,
+                  "pending.pdf",
+                  40,
+                  "failed",
+                  "Upload did not complete before batch finalization.",
+                ),
+              ],
+              alreadyFinalized: false,
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+        if (url.endsWith(`/api/batches/${batchId}`) && init?.method === "DELETE") {
+          return new Response(JSON.stringify({ deleted: true, batchId, cleanupJobsQueued: 1 }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        return new Response("{}", { status: 404 });
+      }),
+    );
+
+    render(<PersistedBatchView batchId={batchId} onDeleted={onDeleted} />);
+
+    const finalizeBtn = await screen.findByRole("button", { name: /Finalize batch/i });
+    fireEvent.click(finalizeBtn);
+
+    // 409 BATCH_HAS_UNRESOLVED_DOCUMENTS opens explicit confirmation dialog
+    const finalizeAnywayBtn = await screen.findByRole("button", { name: "Finalize anyway" });
+    fireEvent.click(finalizeAnywayBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Batch finalized as partial/i)).toBeInTheDocument();
+    });
+    expect(screen.queryByRole("button", { name: /Finalize batch/i })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Upload PDF for pending.pdf/i }),
+    ).not.toBeInTheDocument();
+
+    // Delete batch via ConfirmDialog
+    const deleteTrigger = screen.getByRole("button", { name: "Delete batch Phase 4 UI Batch" });
+    fireEvent.click(deleteTrigger);
+    const confirmDeleteBtn = await screen.findByRole("button", { name: "Delete batch" });
+    fireEvent.click(confirmDeleteBtn);
+
+    await waitFor(() => {
+      expect(onDeleted).toHaveBeenCalledTimes(1);
+    });
+  });
 });

@@ -22,6 +22,7 @@ export const EXPECTED_SCHEMA = {
       status: "text",
       idempotency_key: "text",
       request_hash: "text",
+      finalized_at: TS,
       created_at: TS,
       updated_at: TS,
     },
@@ -30,6 +31,7 @@ export const EXPECTED_SCHEMA = {
       "batches_workspace_id_id_key",
       "ck_batches_status",
       "ck_batches_idempotency_pair",
+      "ck_batches_finalized_status",
     ],
     indexes: ["batches_workspace_created_at_idx", "batches_workspace_idempotency_key_idx"],
   },
@@ -98,7 +100,11 @@ export const EXPECTED_SCHEMA = {
       "ck_storage_cleanup_reason",
       "ck_storage_cleanup_attempts",
     ],
-    indexes: ["idx_storage_cleanup_unique_active", "idx_storage_cleanup_dispatch"],
+    indexes: [
+      "idx_storage_cleanup_unique_active",
+      "idx_storage_cleanup_dispatch",
+      "idx_storage_cleanup_processing_lease",
+    ],
     // Cleanup obligations must survive deletion of their parents: never add foreign keys.
     forbidForeignKeys: true,
   },

@@ -1,16 +1,22 @@
 import "@tanstack/react-start/server-only";
 import {
+  computeBatchFinalStatus,
   computeCreateBatchRequestHash,
   deriveBatchName,
   disambiguateBatchFilenames,
+  isUuid,
+  isValidBatchTransition,
   type BatchIngestionStatus,
   type CreateBatchRequest,
   type CreateBatchResponse,
+  type DeleteBatchResponse,
+  type FinalizeBatchResponse,
   type PersistedBatch,
   type PersistedBatchSummary,
   type PersistedDocument,
 } from "@/lib/gathr/ingestion-types";
 import { HttpError } from "./env";
+import { logLifecycleEvent } from "./lifecycle-log";
 import {
   mapBatchRow,
   mapDocumentRow,
@@ -27,6 +33,7 @@ export function toPublicBatch(row: OwnedBatchRow): PersistedBatch {
     id: row.id,
     name: row.name,
     status: row.status,
+    finalizedAt: row.finalizedAt,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -45,6 +52,8 @@ export function toPublicDocument(row: OwnedDocumentRow): PersistedDocument {
     errorMessage: row.errorMessage,
     uploadedAt: row.uploadedAt,
     createdAt: row.createdAt,
+    ...(row.activeAttemptId ? { activeAttemptId: row.activeAttemptId } : {}),
+    ...(row.leaseExpiresAt ? { leaseExpiresAt: row.leaseExpiresAt } : {}),
   };
 }
 
@@ -70,6 +79,13 @@ function toIso(value: unknown): string {
   return new Date().toISOString();
 }
 
+function toNullableIso(value: unknown): string | null {
+  if (value == null) return null;
+  if (value instanceof Date) return value.toISOString();
+  if (typeof value === "string") return value;
+  return null;
+}
+
 function mapInsertedJoinRow(row: Record<string, unknown>): {
   batch: OwnedBatchRow;
   document: OwnedDocumentRow;
@@ -79,6 +95,7 @@ function mapInsertedJoinRow(row: Record<string, unknown>): {
     workspaceId: String(row["workspace_id"]),
     name: String(row["batch_name"]),
     status: String(row["batch_status"]) as BatchIngestionStatus,
+    finalizedAt: toNullableIso(row["batch_finalized_at"]),
     createdAt: toIso(row["batch_created_at"]),
     updatedAt: toIso(row["batch_updated_at"]),
   };
@@ -149,7 +166,7 @@ export async function createBatchInWorkspace(
          ON CONFLICT ("workspace_id", "idempotency_key")
          WHERE "idempotency_key" IS NOT NULL
          DO NOTHING
-         RETURNING "id", "workspace_id", "name", "status", "created_at", "updated_at"
+         RETURNING "id", "workspace_id", "name", "status", "finalized_at", "created_at", "updated_at"
        ),
        inserted_docs AS (
          INSERT INTO "documents" (
@@ -181,6 +198,7 @@ export async function createBatchInWorkspace(
          ib."workspace_id",
          ib."name" AS "batch_name",
          ib."status" AS "batch_status",
+         ib."finalized_at" AS "batch_finalized_at",
          ib."created_at" AS "batch_created_at",
          ib."updated_at" AS "batch_updated_at",
          idocs."id" AS "doc_id",
@@ -200,7 +218,7 @@ export async function createBatchInWorkspace(
     : `WITH inserted_batch AS (
          INSERT INTO "batches" ("workspace_id", "name", "status")
          VALUES ($1::uuid, $2::text, 'uploading')
-         RETURNING "id", "workspace_id", "name", "status", "created_at", "updated_at"
+         RETURNING "id", "workspace_id", "name", "status", "finalized_at", "created_at", "updated_at"
        ),
        inserted_docs AS (
          INSERT INTO "documents" (
@@ -232,6 +250,7 @@ export async function createBatchInWorkspace(
          ib."workspace_id",
          ib."name" AS "batch_name",
          ib."status" AS "batch_status",
+         ib."finalized_at" AS "batch_finalized_at",
          ib."created_at" AS "batch_created_at",
          ib."updated_at" AS "batch_updated_at",
          idocs."id" AS "doc_id",
@@ -271,7 +290,7 @@ export async function createBatchInWorkspace(
     // Fresh SELECT takes a new Read Committed snapshot after the winning concurrent
     // CTE committed both batches and documents.
     const existingRows = await sql.query(
-      `SELECT "id", "workspace_id", "name", "status", "request_hash", "created_at", "updated_at"
+      `SELECT "id", "workspace_id", "name", "status", "request_hash", "finalized_at", "created_at", "updated_at"
        FROM "batches"
        WHERE "workspace_id" = $1::uuid AND "idempotency_key" = $2::text
        LIMIT 1`,
@@ -317,6 +336,7 @@ export async function listWorkspaceBatches(
          b."workspace_id",
          b."name",
          b."status",
+         b."finalized_at",
          b."created_at",
          b."updated_at",
          COUNT(d."id")::int AS "document_count",
@@ -361,5 +381,360 @@ export async function getWorkspaceBatchDetail(
     };
   } catch (error) {
     rethrowStorageError("getWorkspaceBatchDetail", error);
+  }
+}
+
+/**
+ * Seals a workspace-owned batch against any further upload claims or retries.
+ * Acquires locks in canonical order (`batches -> documents`), refuses when
+ * active unexpired upload leases exist (without failing them), reconciles any
+ * expired leases atomically with outbox recording, and computes final batch
+ * status (`uploaded` | `partial` | `failed`).
+ */
+export async function finalizeBatchInWorkspace(
+  sql: Pick<SqlClient, "query">,
+  params: {
+    workspaceId: string;
+    batchId: string;
+    bucketName: string;
+    allowIncomplete?: boolean | undefined;
+  },
+): Promise<FinalizeBatchResponse> {
+  const { workspaceId, batchId, bucketName, allowIncomplete = false } = params;
+  if (!isUuid(workspaceId)) {
+    throw new HttpError(400, "Invalid workspace identifier.", "INVALID_WORKSPACE_ID");
+  }
+  if (!isUuid(batchId)) {
+    throw new HttpError(400, "Invalid batch identifier.", "INVALID_BATCH_ID");
+  }
+
+  try {
+    const rows = await sql.query(
+      `WITH batch_lock AS (
+         SELECT "id", "workspace_id", "name", "status", "finalized_at", "created_at", "updated_at"
+         FROM "batches"
+         WHERE "id" = $1::uuid AND "workspace_id" = $2::uuid
+         FOR UPDATE
+       ),
+       doc_locks AS (
+         SELECT
+           d."id", d."workspace_id", d."batch_id", d."status",
+           d."active_attempt_id", d."lease_expires_at"
+         FROM "documents" d
+         INNER JOIN batch_lock bl
+           ON bl."id" = d."batch_id" AND bl."workspace_id" = d."workspace_id"
+         ORDER BY d."created_at" ASC, d."id" ASC
+         FOR UPDATE OF d
+       ),
+       summary AS (
+         SELECT
+           COUNT(*)::int AS "total_count",
+           COUNT(*) FILTER (
+             WHERE "status" = 'uploading'
+               AND ("lease_expires_at" IS NULL OR "lease_expires_at" > clock_timestamp())
+           )::int AS "active_lease_count",
+           COUNT(*) FILTER (WHERE "status" = 'pending_upload')::int AS "pending_count",
+           COUNT(*) FILTER (
+             WHERE "status" = 'uploading'
+               AND "lease_expires_at" IS NOT NULL
+               AND "lease_expires_at" <= clock_timestamp()
+           )::int AS "expired_count",
+           COUNT(*) FILTER (WHERE "status" = 'uploaded')::int AS "uploaded_count"
+         FROM doc_locks
+       ),
+       can_seal AS (
+         SELECT
+           bl."id",
+           bl."workspace_id",
+           bl."status" AS "prev_status",
+           s."total_count",
+           s."active_lease_count",
+           s."pending_count",
+           s."expired_count",
+           s."uploaded_count"
+         FROM batch_lock bl
+         CROSS JOIN summary s
+         WHERE bl."finalized_at" IS NULL
+           AND s."active_lease_count" = 0
+           AND (s."pending_count" = 0 OR $3::boolean = true)
+       ),
+       reconcile_outbox AS (
+         INSERT INTO "storage_cleanup_outbox" (
+           "storage_key", "bucket_name", "workspace_id", "batch_id", "document_id", "reason"
+         )
+         SELECT
+           'gathr/' || dl."workspace_id"::text || '/' || dl."batch_id"::text || '/' || dl."id"::text || '/' || dl."active_attempt_id"::text || '.pdf',
+           NULLIF($4::text, ''),
+           dl."workspace_id",
+           dl."batch_id",
+           dl."id",
+           'reaper_eviction'
+         FROM doc_locks dl
+         INNER JOIN can_seal cs ON cs."id" = dl."batch_id"
+         WHERE dl."status" = 'uploading'
+           AND dl."lease_expires_at" IS NOT NULL
+           AND dl."lease_expires_at" <= clock_timestamp()
+           AND dl."active_attempt_id" IS NOT NULL
+         ON CONFLICT ("storage_key") WHERE "status" IN ('pending', 'processing')
+         DO NOTHING
+         RETURNING "id"
+       ),
+       reconciled_docs AS (
+         UPDATE "documents" d
+         SET
+           "status" = 'failed',
+           "active_attempt_id" = NULL,
+           "lease_expires_at" = NULL,
+           "error_message" = CASE
+             WHEN d."status" = 'uploading' THEN 'Upload lease expired before completion.'
+             ELSE 'Upload did not complete before batch finalization.'
+           END,
+           "updated_at" = clock_timestamp()
+         FROM doc_locks dl
+         INNER JOIN can_seal cs ON cs."id" = dl."batch_id"
+         WHERE d."id" = dl."id"
+           AND d."workspace_id" = dl."workspace_id"
+           AND (SELECT count(*) FROM reconcile_outbox) >= 0
+           AND (
+             (dl."status" = 'uploading' AND dl."lease_expires_at" IS NOT NULL AND dl."lease_expires_at" <= clock_timestamp())
+             OR ($3::boolean = true AND dl."status" = 'pending_upload')
+           )
+         RETURNING d."id"
+       ),
+       sealed_batch AS (
+         UPDATE "batches" b
+         SET
+           "status" = CASE
+             WHEN cs."total_count" > 0 AND cs."uploaded_count" = cs."total_count" THEN 'uploaded'
+             WHEN cs."uploaded_count" > 0 THEN 'partial'
+             ELSE 'failed'
+           END,
+           "finalized_at" = clock_timestamp(),
+           "updated_at" = clock_timestamp()
+         FROM can_seal cs
+         WHERE b."id" = cs."id"
+           AND b."workspace_id" = cs."workspace_id"
+           AND (SELECT count(*) FROM reconciled_docs) >= 0
+         RETURNING b."id", b."workspace_id", b."name", b."status", b."finalized_at", b."created_at", b."updated_at"
+       )
+       SELECT
+         bl."id" AS "found_id",
+         bl."status" AS "prev_status",
+         bl."finalized_at" AS "prev_finalized_at",
+         s."total_count",
+         s."uploaded_count",
+         s."active_lease_count",
+         s."pending_count",
+         sb."id" AS "sealed_id",
+         COALESCE(sb."workspace_id", bl."workspace_id") AS "workspace_id",
+         COALESCE(sb."name", bl."name") AS "name",
+         COALESCE(sb."status", bl."status") AS "status",
+         COALESCE(sb."finalized_at", bl."finalized_at") AS "finalized_at",
+         COALESCE(sb."created_at", bl."created_at") AS "created_at",
+         COALESCE(sb."updated_at", bl."updated_at") AS "updated_at"
+       FROM batch_lock bl
+       CROSS JOIN summary s
+       LEFT JOIN sealed_batch sb ON sb."id" = bl."id"`,
+      [batchId, workspaceId, allowIncomplete, bucketName.trim()],
+    );
+
+    const row = rows[0];
+    if (!row) {
+      throw new HttpError(404, "Batch not found.", "BATCH_NOT_FOUND");
+    }
+
+    const alreadyFinalized = row["prev_finalized_at"] != null;
+    if (!alreadyFinalized && !row["sealed_id"]) {
+      const activeLeases = Number(row["active_lease_count"] ?? 0);
+      const pendingCount = Number(row["pending_count"] ?? 0);
+      if (activeLeases > 0) {
+        logLifecycleEvent("info", {
+          operation: "finalize_batch",
+          outcome: "rejected",
+          batchId,
+          failureCategory: "conflict",
+          count: activeLeases,
+        });
+        throw new HttpError(
+          409,
+          "Cannot finalize batch while document uploads are actively in progress.",
+          "UPLOAD_IN_PROGRESS",
+        );
+      }
+      if (pendingCount > 0) {
+        logLifecycleEvent("info", {
+          operation: "finalize_batch",
+          outcome: "rejected",
+          batchId,
+          failureCategory: "conflict",
+          count: pendingCount,
+        });
+        throw new HttpError(
+          409,
+          "Some documents in this batch have not finished uploading yet.",
+          "BATCH_HAS_UNRESOLVED_DOCUMENTS",
+        );
+      }
+      throw new HttpError(409, "Batch could not be finalized.", "BATCH_FINALIZE_CONFLICT");
+    }
+
+    const prevStatus = String(row["prev_status"]) as BatchIngestionStatus;
+    const expectedNext = computeBatchFinalStatus(
+      Number(row["total_count"] ?? 0),
+      Number(row["uploaded_count"] ?? 0),
+    );
+    if (!alreadyFinalized && !isValidBatchTransition(prevStatus, expectedNext, false)) {
+      throw new HttpError(409, "Invalid batch state transition.", "INVALID_BATCH_TRANSITION");
+    }
+
+    const batch = mapBatchRow({
+      id: row["found_id"],
+      workspace_id: row["workspace_id"],
+      name: row["name"],
+      status: row["status"],
+      finalized_at: row["finalized_at"],
+      created_at: row["created_at"],
+      updated_at: row["updated_at"],
+    });
+    const documents = await fetchBatchDocuments(sql, workspaceId, batch.id);
+
+    logLifecycleEvent("info", {
+      operation: "finalize_batch",
+      outcome: "succeeded",
+      batchId: batch.id,
+      reason: alreadyFinalized ? "already_finalized" : batch.status,
+      count: documents.length,
+    });
+
+    return {
+      batch: toPublicBatch(batch),
+      documents,
+      alreadyFinalized,
+    };
+  } catch (error) {
+    rethrowStorageError("finalizeBatchInWorkspace", error);
+  }
+}
+
+/**
+ * Atomically deletes a workspace-owned batch and its child documents while
+ * persisting all required B2 cleanup obligations in `storage_cleanup_outbox`.
+ * If any obligation fails to persist, the entire SQL statement rolls back and
+ * batch/document metadata remains intact.
+ */
+export async function deleteBatchInWorkspace(
+  sql: Pick<SqlClient, "query">,
+  params: {
+    workspaceId: string;
+    batchId: string;
+    bucketName: string;
+  },
+): Promise<DeleteBatchResponse> {
+  const { workspaceId, batchId, bucketName } = params;
+  if (!isUuid(workspaceId)) {
+    throw new HttpError(400, "Invalid workspace identifier.", "INVALID_WORKSPACE_ID");
+  }
+  if (!isUuid(batchId)) {
+    throw new HttpError(400, "Invalid batch identifier.", "INVALID_BATCH_ID");
+  }
+
+  try {
+    const rows = await sql.query(
+      `WITH batch_lock AS (
+         SELECT "id", "workspace_id"
+         FROM "batches"
+         WHERE "id" = $1::uuid AND "workspace_id" = $2::uuid
+         FOR UPDATE
+       ),
+       doc_locks AS (
+         SELECT
+           d."id",
+           d."workspace_id",
+           d."batch_id",
+           d."storage_key",
+           d."active_attempt_id"
+         FROM "documents" d
+         INNER JOIN batch_lock bl
+           ON bl."id" = d."batch_id" AND bl."workspace_id" = d."workspace_id"
+         ORDER BY d."created_at" ASC, d."id" ASC
+         FOR UPDATE OF d
+       ),
+       doc_keys AS (
+         SELECT DISTINCT
+           dl."id" AS "document_id",
+           dl."workspace_id",
+           dl."batch_id",
+           k."storage_key"
+         FROM doc_locks dl
+         CROSS JOIN LATERAL (
+           SELECT dl."storage_key" AS "storage_key"
+           WHERE dl."storage_key" IS NOT NULL
+           UNION
+           SELECT ('gathr/' || dl."workspace_id"::text || '/' || dl."batch_id"::text || '/' || dl."id"::text || '/' || dl."active_attempt_id"::text || '.pdf') AS "storage_key"
+           WHERE dl."active_attempt_id" IS NOT NULL
+         ) k
+       ),
+       inserted_outbox AS (
+         INSERT INTO "storage_cleanup_outbox" (
+           "storage_key", "bucket_name", "workspace_id", "batch_id", "document_id", "reason"
+         )
+         SELECT
+           dk."storage_key",
+           NULLIF($3::text, ''),
+           dk."workspace_id",
+           dk."batch_id",
+           dk."document_id",
+           'batch_deleted'
+         FROM doc_keys dk
+         ON CONFLICT ("storage_key") WHERE "status" IN ('pending', 'processing')
+         DO NOTHING
+         RETURNING "id"
+       ),
+       deleted_batch AS (
+         DELETE FROM "batches" b
+         USING batch_lock bl
+         WHERE b."id" = bl."id"
+           AND b."workspace_id" = bl."workspace_id"
+           AND (SELECT count(*) FROM inserted_outbox) >= 0
+         RETURNING b."id"
+       )
+       SELECT
+         (SELECT "id" FROM batch_lock) AS "batch_id",
+         (SELECT "id" FROM deleted_batch) AS "deleted_id",
+         (SELECT count(*)::int FROM doc_keys) AS "required_obligations",
+         (SELECT count(*)::int FROM inserted_outbox) AS "inserted_obligations"`,
+      [batchId, workspaceId, bucketName.trim()],
+    );
+
+    const row = rows[0];
+    if (!row || !row["batch_id"] || !row["deleted_id"]) {
+      throw new HttpError(404, "Batch not found.", "BATCH_NOT_FOUND");
+    }
+
+    const required = Number(row["required_obligations"] ?? 0);
+    logLifecycleEvent("info", {
+      operation: "delete_batch",
+      outcome: "succeeded",
+      batchId,
+      count: required,
+      reason: "batch_deleted",
+    });
+
+    return {
+      deleted: true,
+      batchId,
+      cleanupJobsQueued: required,
+    };
+  } catch (error) {
+    if (!(error instanceof HttpError)) {
+      logLifecycleEvent("error", {
+        operation: "delete_batch",
+        outcome: "failed",
+        batchId,
+        failureCategory: "outbox_persistence_failed",
+        detail: error instanceof Error ? error.message : String(error),
+      });
+    }
+    rethrowStorageError("deleteBatchInWorkspace", error);
   }
 }

@@ -94,6 +94,7 @@ export const Route = createFileRoute("/api/documents/$id/cancel")({
   server: {
     handlers: {
       POST: async ({ request, params }) => handleCancelDocumentUpload(request, params.id),
+      ANY: () => methodNotAllowedResponse("POST"),
     },
   },
 });
