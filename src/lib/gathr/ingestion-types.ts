@@ -81,8 +81,18 @@ export interface CreateBatchRequest {
 export interface ClaimUploadResponse {
   documentId: string;
   attemptId: string;
-  storageKey: string;
   leaseExpiresAt: string;
+}
+
+export interface UploadDocumentResponse {
+  document: PersistedDocument;
+  batch: PersistedBatch;
+}
+
+export interface CancelUploadResponse {
+  document: PersistedDocument;
+  batch: PersistedBatch;
+  cancelled: boolean;
 }
 
 export interface CreateBatchResponse {
@@ -319,6 +329,15 @@ export function toAsciiHeaderFilename(filename: string): string {
   const trimmed = ascii.trim();
   if (!trimmed || trimmed === ".pdf") return "document.pdf";
   return trimmed.toLowerCase().endsWith(".pdf") ? trimmed : `${trimmed}.pdf`;
+}
+
+const STORAGE_KEY_REGEX =
+  /^gathr\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?:\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?\.pdf$/i;
+
+export function isSafeStorageKey(key: string): boolean {
+  if (typeof key !== "string" || key.length === 0 || key.length > 512) return false;
+  if (key.includes("..") || key.includes("\\") || key.includes("\0")) return false;
+  return STORAGE_KEY_REGEX.test(key);
 }
 
 export function buildStorageKey(ids: {

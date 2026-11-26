@@ -229,7 +229,10 @@ function Batches() {
                 <span className="num hidden text-[13px] md:block">
                   {b.uploadedCount} uploaded
                   <br />
-                  <span className="text-muted-foreground">{b.pendingCount} pending</span>
+                  <span className="text-muted-foreground">
+                    {b.pendingCount} pending
+                    {b.failedCount > 0 ? ` · ${b.failedCount} failed` : ""}
+                  </span>
                 </span>
                 <span className="hidden md:block">
                   <IngestionBatchStatusPill status={b.status} pendingOnly={pendingOnly} />

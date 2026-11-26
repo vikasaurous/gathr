@@ -16,17 +16,21 @@ import { Pool, neonConfig } from "@neondatabase/serverless";
 import { sendOtpEmail } from "@/lib/email/resend";
 
 // In Cloudflare Workers, the global WebSocket constructor is available.
-// This line is a no-op in Node.js (where Pool already uses net sockets).
+// Prefer stateless HTTP fetch for Pool queries so idle WebSocket timeouts never
+// drop or emit unhandled errors across requests in Node or Workers.
 // @ts-expect-error — global WebSocket exists in Workers, possibly undefined in Node
 if (typeof WebSocket !== "undefined") {
   neonConfig.webSocketConstructor = WebSocket;
 }
+neonConfig.poolQueryViaFetch = true;
 
 function createDb() {
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL! });
+  pool.on("error", (err: unknown) => {
+    console.error("[auth-db] idle pool client error:", err);
+  });
   return new Kysely({
-    dialect: new PostgresDialect({
-      pool: new Pool({ connectionString: process.env.DATABASE_URL! }),
-    }),
+    dialect: new PostgresDialect({ pool }),
   });
 }
 

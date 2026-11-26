@@ -7,7 +7,12 @@
 // the build fails. Never add compression (compressPublicAssets, vite-plugin-compression):
 // hosting already compresses at the edge.
 // You can pass additional config via defineConfig({ vite: { ... }, etc... }) if needed.
+import dns from "node:dns";
 import { defineConfig } from "@lovable.dev/vite-tanstack-config";
+
+// Prefer IPv4 in local Node dev/build to avoid 10s IPv6 blackhole connect timeouts
+// against Neon / Backblaze B2 on networks without working IPv6 routing.
+dns.setDefaultResultOrder("ipv4first");
 
 export default defineConfig({
   tanstackStart: {

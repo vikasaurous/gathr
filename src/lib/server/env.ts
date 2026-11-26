@@ -6,6 +6,11 @@ export interface ServerEnvMap {
   BETTER_AUTH_URL?: string | undefined;
   PRODUCTION_ORIGIN?: string | undefined;
   ADMIN_EMAILS?: string | undefined;
+  B2_S3_ENDPOINT?: string | undefined;
+  B2_S3_REGION?: string | undefined;
+  B2_BUCKET_NAME?: string | undefined;
+  B2_APPLICATION_KEY_ID?: string | undefined;
+  B2_APPLICATION_KEY?: string | undefined;
 }
 
 type RequestWithCloudflareRuntime = Request & {
@@ -51,6 +56,11 @@ export function getServerEnv(request?: Request, directEnv?: Record<string, unkno
     BETTER_AUTH_URL: pick("BETTER_AUTH_URL"),
     PRODUCTION_ORIGIN: pick("PRODUCTION_ORIGIN"),
     ADMIN_EMAILS: pick("ADMIN_EMAILS"),
+    B2_S3_ENDPOINT: pick("B2_S3_ENDPOINT"),
+    B2_S3_REGION: pick("B2_S3_REGION"),
+    B2_BUCKET_NAME: pick("B2_BUCKET_NAME"),
+    B2_APPLICATION_KEY_ID: pick("B2_APPLICATION_KEY_ID"),
+    B2_APPLICATION_KEY: pick("B2_APPLICATION_KEY"),
   };
 }
 

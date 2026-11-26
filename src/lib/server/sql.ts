@@ -7,6 +7,31 @@ export interface SqlClient {
   query(text: string, params?: unknown[]): Promise<Record<string, unknown>[]>;
 }
 
+const TRANSIENT_CONNECT_CODES = new Set([
+  "UND_ERR_CONNECT_TIMEOUT",
+  "ECONNREFUSED",
+  "EAI_AGAIN",
+  "ENOTFOUND",
+  "ETIMEDOUT",
+]);
+
+function extractCauseCode(error: unknown): string | undefined {
+  if (typeof error !== "object" || error === null) return undefined;
+  const direct = (error as { code?: unknown }).code;
+  if (typeof direct === "string" && TRANSIENT_CONNECT_CODES.has(direct)) return direct;
+  const source = (error as { sourceError?: unknown }).sourceError;
+  if (source) {
+    const nested = extractCauseCode(source);
+    if (nested) return nested;
+  }
+  const cause = (error as { cause?: unknown }).cause;
+  return cause ? extractCauseCode(cause) : undefined;
+}
+
+export function isTransientConnectError(error: unknown): boolean {
+  return extractCauseCode(error) !== undefined;
+}
+
 /**
  * Creates a stateless Neon HTTP client for the current request. Nothing is
  * cached at module scope, which is safe on Cloudflare Workers where I/O objects
@@ -20,6 +45,14 @@ export function getSql(request?: Request): SqlClient {
   }
   const sql = neon(url);
   return {
-    query: (text, params) => sql.query(text, params ?? []) as Promise<Record<string, unknown>[]>,
+    query: async (text, params) => {
+      try {
+        return (await sql.query(text, params ?? [])) as Record<string, unknown>[];
+      } catch (error) {
+        if (!isTransientConnectError(error)) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 150));
+        return (await sql.query(text, params ?? [])) as Record<string, unknown>[];
+      }
+    },
   };
 }
