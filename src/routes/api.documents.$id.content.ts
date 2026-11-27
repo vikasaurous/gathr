@@ -40,6 +40,7 @@ export const Route = createFileRoute("/api/documents/$id/content")({
   server: {
     handlers: {
       GET: async ({ request, params }) => handleGetDocumentContent(request, params.id),
+      ANY: () => methodNotAllowedResponse("GET"),
     },
   },
 });
