@@ -11,7 +11,12 @@ import {
 } from "@/lib/gathr/ingestion-types";
 import { createBatchInWorkspace, listWorkspaceBatches } from "@/lib/server/batches";
 import { methodNotAllowedResponse } from "@/lib/server/documents";
-import { HttpError, jsonResponse, toSafeErrorResponse } from "@/lib/server/env";
+import {
+  HttpError,
+  jsonResponse,
+  readBoundedJsonBody,
+  toSafeErrorResponse,
+} from "@/lib/server/env";
 import {
   assertSameOrigin,
   rejectClientWorkspaceId,
@@ -20,54 +25,6 @@ import {
 import { getSql } from "@/lib/server/sql";
 
 const MAX_CREATE_BATCH_JSON_BYTES = 64 * 1024;
-
-async function readBoundedJsonBody(request: Request): Promise<unknown> {
-  const contentType = request.headers.get("content-type") ?? "";
-  if (contentType.split(";")[0]?.trim().toLowerCase() !== "application/json") {
-    throw new HttpError(415, "Content-Type must be application/json.", "UNSUPPORTED_MEDIA_TYPE");
-  }
-
-  const contentLengthHeader = request.headers.get("content-length");
-  if (contentLengthHeader !== null) {
-    const declaredLength = Number(contentLengthHeader);
-    if (Number.isFinite(declaredLength) && declaredLength > MAX_CREATE_BATCH_JSON_BYTES) {
-      throw new HttpError(413, "Request payload is too large.", "PAYLOAD_TOO_LARGE");
-    }
-  }
-
-  let rawText = "";
-  if (request.body) {
-    const reader = request.body.getReader();
-    const decoder = new TextDecoder();
-    let totalBytes = 0;
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      totalBytes += value.byteLength;
-      if (totalBytes > MAX_CREATE_BATCH_JSON_BYTES) {
-        await reader.cancel().catch(() => {});
-        throw new HttpError(413, "Request payload is too large.", "PAYLOAD_TOO_LARGE");
-      }
-      rawText += decoder.decode(value, { stream: true });
-    }
-    rawText += decoder.decode();
-  } else {
-    rawText = await request.text();
-    if (new TextEncoder().encode(rawText).byteLength > MAX_CREATE_BATCH_JSON_BYTES) {
-      throw new HttpError(413, "Request payload is too large.", "PAYLOAD_TOO_LARGE");
-    }
-  }
-
-  if (!rawText.trim()) {
-    throw new HttpError(400, "Request body is required.", "INVALID_JSON");
-  }
-
-  try {
-    return JSON.parse(rawText);
-  } catch {
-    throw new HttpError(400, "Malformed JSON request body.", "INVALID_JSON");
-  }
-}
 
 const VALID_BATCH_STATUSES = new Set<BatchIngestionStatus>([
   "uploading",
@@ -106,8 +63,12 @@ function parseBatchListOptions(url: URL) {
       throw new HttpError(400, "Invalid pagination offset.", "INVALID_PAGINATION");
     }
     const parsed = Number(offsetRaw);
-    if (!Number.isSafeInteger(parsed) || parsed < 0) {
-      throw new HttpError(400, "Pagination offset must be non-negative.", "INVALID_PAGINATION");
+    if (!Number.isSafeInteger(parsed) || parsed < 0 || parsed > 2_147_483_647) {
+      throw new HttpError(
+        400,
+        "Pagination offset is out of supported range.",
+        "INVALID_PAGINATION",
+      );
     }
     offset = parsed;
   }
@@ -146,7 +107,7 @@ export async function handlePostBatches(request: Request): Promise<Response> {
     const sql = getSql(request);
     const { workspace } = await requireWorkspaceContext(sql, request);
 
-    const body = await readBoundedJsonBody(request);
+    const body = await readBoundedJsonBody(request, MAX_CREATE_BATCH_JSON_BYTES);
     rejectClientWorkspaceId(body);
 
     const rawIdempotencyKey = request.headers.has("idempotency-key")

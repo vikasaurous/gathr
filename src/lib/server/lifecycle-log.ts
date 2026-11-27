@@ -5,6 +5,8 @@ export type LifecycleLogLevel = "info" | "warn" | "error";
 export type LifecycleFailureCategory =
   | "validation"
   | "conflict"
+  | "not_uploaded"
+  | "invalid_transition"
   | "batch_finalized"
   | "lease_expired"
   | "attempt_superseded"

@@ -49,6 +49,8 @@ export const EXPECTED_SCHEMA = {
       upload_started_at: TS,
       status: "text",
       review_status: "text",
+      review_version: "integer",
+      review_updated_at: TS,
       page_count: "integer",
       error_message: "text",
       uploaded_at: TS,
@@ -65,6 +67,8 @@ export const EXPECTED_SCHEMA = {
       "ck_documents_status",
       "ck_documents_review_status",
       "ck_documents_review_requires_upload",
+      "ck_documents_review_version",
+      "ck_documents_review_updated_requires_upload",
       "ck_documents_original_filename",
     ],
     indexes: [
@@ -73,7 +77,29 @@ export const EXPECTED_SCHEMA = {
       "documents_canonical_storage_key_idx",
       "documents_active_lease_idx",
       "documents_review_queue_idx",
+      "documents_workspace_review_list_idx",
     ],
+  },
+  document_review_events: {
+    columns: {
+      id: "uuid",
+      workspace_id: "uuid",
+      batch_id: "uuid",
+      document_id: "uuid",
+      actor_user_id: "text",
+      from_review_status: "text",
+      to_review_status: "text",
+      idempotency_key: "text",
+      request_hash: "text",
+      created_at: TS,
+    },
+    constraints: [
+      "document_review_events_pkey",
+      "ck_doc_review_events_from",
+      "ck_doc_review_events_to",
+      "ck_doc_review_events_idempotency_pair",
+    ],
+    indexes: ["document_review_events_doc_created_idx", "document_review_events_idempotency_idx"],
   },
   storage_cleanup_outbox: {
     columns: {

@@ -1,6 +1,11 @@
 import { jsPDF } from "jspdf";
 import JSZip from "jszip";
 import * as XLSX from "xlsx";
+import {
+  formatReviewStatusLabel,
+  type DocumentReviewStatus,
+  type DocumentUploadStatus,
+} from "./ingestion-types";
 import { FIELD_META, type Invoice } from "./types";
 
 export const DEFAULT_FILENAME_TEMPLATE = "{vendor}_{invoice_number}_{date}.pdf";
@@ -289,13 +294,74 @@ export function invoicesToXlsx(invoices: Invoice[]): Uint8Array {
 }
 
 /**
- * Formats a status string for editorial display (e.g., 'needs_review' -> 'Needs Review').
+ * Formats a review/business status string using GATHR's canonical status labels
+ * (e.g., 'needs_review' -> 'Needs review', null -> 'Unreviewed').
  */
-export function formatStatusLabel(status: string): string {
-  return status
-    .split("_")
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(" ");
+export function formatStatusLabel(status: string | null | undefined): string {
+  return formatReviewStatusLabel(status);
+}
+
+export interface PersistedExportDocument {
+  id: string;
+  batchId: string;
+  batchName?: string | undefined;
+  originalFilename: string;
+  mimeType: string;
+  fileSizeBytes: number;
+  status: DocumentUploadStatus;
+  reviewStatus: DocumentReviewStatus | null;
+  uploadedAt: string | null;
+  reviewUpdatedAt?: string | null | undefined;
+  createdAt: string;
+}
+
+const UPLOAD_STATUS_LABELS: Record<DocumentUploadStatus, string> = {
+  pending_upload: "Pending upload",
+  uploading: "Uploading",
+  uploaded: "Uploaded",
+  failed: "Upload failed",
+};
+
+/**
+ * Generates RFC 4180 CSV with UTF-8 BOM and formula neutralization for persisted
+ * workspace documents using only actual captured metadata and canonical review labels.
+ * Read-only: never mutates document or approval state.
+ */
+export function persistedDocumentsToCsv(documents: PersistedExportDocument[]): string {
+  const head = [
+    "Document ID",
+    "Filename",
+    "Batch",
+    "Batch ID",
+    "Upload status",
+    "Review status",
+    "MIME type",
+    "File size (bytes)",
+    "Uploaded at",
+    "Review updated at",
+    "Created at",
+  ];
+  const rows = documents.map((doc) => [
+    csvCell(doc.id, false),
+    csvCell(doc.originalFilename, false),
+    csvCell(doc.batchName ?? doc.batchId, false),
+    csvCell(doc.batchId, false),
+    csvCell(UPLOAD_STATUS_LABELS[doc.status] ?? doc.status, false),
+    csvCell(
+      doc.status === "uploaded" ? formatReviewStatusLabel(doc.reviewStatus) : "Not uploaded",
+      false,
+    ),
+    csvCell(doc.mimeType, false),
+    csvCell(String(doc.fileSizeBytes), true),
+    csvCell(doc.uploadedAt ?? "", false),
+    csvCell(doc.reviewUpdatedAt ?? "", false),
+    csvCell(doc.createdAt, false),
+  ]);
+  const csvBody = [
+    head.map((h) => csvCell(h, false)).join(","),
+    ...rows.map((r) => r.join(",")),
+  ].join("\r\n");
+  return `\uFEFF${csvBody}`;
 }
 
 /**

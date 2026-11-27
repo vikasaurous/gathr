@@ -43,8 +43,11 @@ import {
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/app/batches/$id")({
-  validateSearch: (s: Record<string, unknown>): { invoice?: string | undefined } => ({
+  validateSearch: (
+    s: Record<string, unknown>,
+  ): { invoice?: string | undefined; doc?: string | undefined } => ({
     invoice: typeof s["invoice"] === "string" ? s["invoice"] : undefined,
+    doc: typeof s["doc"] === "string" ? s["doc"] : undefined,
   }),
   head: ({ params }) => ({
     meta: [
@@ -88,7 +91,17 @@ function Review() {
   const navigate = useNavigate({ from: Route.fullPath });
   if (isUuid(id)) {
     return (
-      <PersistedBatchView batchId={id} onDeleted={() => void navigate({ to: "/app/batches" })} />
+      <PersistedBatchView
+        batchId={id}
+        selectedDocId={search.doc}
+        onSelectDoc={(doc) =>
+          void navigate({
+            search: { invoice: undefined, doc },
+            replace: true,
+          })
+        }
+        onDeleted={() => void navigate({ to: "/app/batches" })}
+      />
     );
   }
   return (

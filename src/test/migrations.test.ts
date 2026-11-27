@@ -727,3 +727,104 @@ describe("Phase 5 migration 007 — batch finalization & cleanup lease index", (
     await pg.close();
   }, 60_000);
 });
+
+describe("Phase 7 migration 008 — review workflow, concurrency & audit events", () => {
+  it("adds review_version, review_updated_at, document_review_events, constraints, and index", async () => {
+    const pg = new PGlite();
+    const res = await runMigrations({
+      db: pgliteAdapter(pg),
+      dir: MIGRATIONS_DIR,
+      mode: "apply",
+    });
+    expect(res.ok).toBe(true);
+    expect(res.appliedNow).toContain("008_review_workflow.sql");
+
+    await pg.exec(`insert into "user"(id,name,email) values ('u7','P7','p7@x.com')`);
+    const ws = (
+      await rowsOf(pg, `insert into workspaces(owner_user_id,name) values ('u7','W7') returning id`)
+    )[0]!.id;
+    const batch = (
+      await rowsOf(
+        pg,
+        `insert into batches(workspace_id,name,status) values ($1,'B7','uploading') returning id`,
+        [ws],
+      )
+    )[0]!.id;
+    const pendingDoc = (
+      await rowsOf(
+        pg,
+        `insert into documents(workspace_id,batch_id,original_filename,file_size_bytes,status)
+         values ($1,$2,'pending.pdf',100,'pending_upload') returning id, review_version, review_updated_at`,
+        [ws, batch],
+      )
+    )[0]!;
+    expect(pendingDoc["review_version"]).toBe(0);
+    expect(pendingDoc["review_updated_at"]).toBeNull();
+
+    // Negative review_version is rejected
+    await fails(
+      pg,
+      `update documents set review_version = -1 where id = $1`,
+      [pendingDoc.id],
+      "23514",
+    );
+
+    // review_updated_at cannot be set while document is not uploaded
+    await fails(
+      pg,
+      `update documents set review_updated_at = now() where id = $1`,
+      [pendingDoc.id],
+      "23514",
+    );
+
+    const uploadedDoc = (
+      await rowsOf(
+        pg,
+        `insert into documents(workspace_id,batch_id,original_filename,file_size_bytes,status,storage_key,uploaded_at,review_status,review_version,review_updated_at)
+         values ($1,$2,'ok.pdf',100,'uploaded','gathr/w/b/ok.pdf',now(),'verified',1,now()) returning id`,
+        [ws, batch],
+      )
+    )[0]!.id;
+
+    // Invalid event status / unpaired idempotency metadata rejected
+    await fails(
+      pg,
+      `insert into document_review_events(workspace_id,batch_id,document_id,actor_user_id,from_review_status,to_review_status)
+       values ($1,$2,$3,'u7',null,'approved')`,
+      [ws, batch, uploadedDoc],
+      "23514",
+    );
+    await fails(
+      pg,
+      `insert into document_review_events(workspace_id,batch_id,document_id,actor_user_id,from_review_status,to_review_status,idempotency_key)
+       values ($1,$2,$3,'u7',null,'verified','only-key')`,
+      [ws, batch, uploadedDoc],
+      "23514",
+    );
+
+    // Valid event + unique (document_id, idempotency_key) enforcement
+    await pg.query(
+      `insert into document_review_events(workspace_id,batch_id,document_id,actor_user_id,from_review_status,to_review_status,idempotency_key,request_hash)
+       values ($1,$2,$3,'u7',null,'verified','k-1','hash-1')`,
+      [ws, batch, uploadedDoc],
+    );
+    await fails(
+      pg,
+      `insert into document_review_events(workspace_id,batch_id,document_id,actor_user_id,from_review_status,to_review_status,idempotency_key,request_hash)
+       values ($1,$2,$3,'u7','verified','needs_review','k-1','hash-2')`,
+      [ws, batch, uploadedDoc],
+      "23505",
+    );
+
+    // Deleting document cascades review events cleanly
+    await pg.query(`delete from documents where id = $1`, [uploadedDoc]);
+    const remainingEvents = await rowsOf(
+      pg,
+      `select id from document_review_events where document_id = $1`,
+      [uploadedDoc],
+    );
+    expect(remainingEvents).toHaveLength(0);
+
+    await pg.close();
+  }, 90_000);
+});

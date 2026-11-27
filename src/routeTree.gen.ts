@@ -23,6 +23,7 @@ import { Route as RegisterRouteImport } from './routes/register'
 import { Route as TermsRouteImport } from './routes/terms'
 import { Route as VerifyEmailRouteImport } from './routes/verify-email'
 import { Route as ApiBatchesRouteImport } from './routes/api.batches'
+import { Route as ApiDocumentsRouteImport } from './routes/api.documents'
 import { Route as ApiWorkspaceRouteImport } from './routes/api.workspace'
 import { Route as AppIndexRouteImport } from './routes/app.index'
 import { Route as AppInvoicesRouteImport } from './routes/app.invoices'
@@ -37,6 +38,7 @@ import { Route as ApiBatchesIdFinalizeRouteImport } from './routes/api.batches.$
 import { Route as ApiDocumentsIdCancelRouteImport } from './routes/api.documents.$id.cancel'
 import { Route as ApiDocumentsIdContentRouteImport } from './routes/api.documents.$id.content'
 import { Route as ApiDocumentsIdHeartbeatRouteImport } from './routes/api.documents.$id.heartbeat'
+import { Route as ApiDocumentsIdReviewRouteImport } from './routes/api.documents.$id.review'
 import { Route as ApiDocumentsIdUploadRouteImport } from './routes/api.documents.$id.upload'
 
 const IndexRoute = IndexRouteImport.update({
@@ -109,6 +111,11 @@ const ApiBatchesRoute = ApiBatchesRouteImport.update({
   path: '/api/batches',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiDocumentsRoute = ApiDocumentsRouteImport.update({
+  id: '/api/documents',
+  path: '/api/documents',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiWorkspaceRoute = ApiWorkspaceRouteImport.update({
   id: '/api/workspace',
   path: '/api/workspace',
@@ -145,9 +152,9 @@ const ApiBatchesIdRoute = ApiBatchesIdRouteImport.update({
   getParentRoute: () => ApiBatchesRoute,
 } as any)
 const ApiDocumentsIdRoute = ApiDocumentsIdRouteImport.update({
-  id: '/api/documents/$id',
-  path: '/api/documents/$id',
-  getParentRoute: () => rootRouteImport,
+  id: '/$id',
+  path: '/$id',
+  getParentRoute: () => ApiDocumentsRoute,
 } as any)
 const AppBatchesIndexRoute = AppBatchesIndexRouteImport.update({
   id: '/batches/',
@@ -179,6 +186,11 @@ const ApiDocumentsIdHeartbeatRoute = ApiDocumentsIdHeartbeatRouteImport.update({
   path: '/heartbeat',
   getParentRoute: () => ApiDocumentsIdRoute,
 } as any)
+const ApiDocumentsIdReviewRoute = ApiDocumentsIdReviewRouteImport.update({
+  id: '/review',
+  path: '/review',
+  getParentRoute: () => ApiDocumentsIdRoute,
+} as any)
 const ApiDocumentsIdUploadRoute = ApiDocumentsIdUploadRouteImport.update({
   id: '/upload',
   path: '/upload',
@@ -200,6 +212,7 @@ export interface FileRoutesByFullPath {
   '/terms': typeof TermsRoute
   '/verify-email': typeof VerifyEmailRoute
   '/api/batches': typeof ApiBatchesRouteWithChildren
+  '/api/documents': typeof ApiDocumentsRouteWithChildren
   '/api/workspace': typeof ApiWorkspaceRoute
   '/app/invoices': typeof AppInvoicesRoute
   '/app/new': typeof AppNewRoute
@@ -214,6 +227,7 @@ export interface FileRoutesByFullPath {
   '/api/documents/$id/cancel': typeof ApiDocumentsIdCancelRoute
   '/api/documents/$id/content': typeof ApiDocumentsIdContentRoute
   '/api/documents/$id/heartbeat': typeof ApiDocumentsIdHeartbeatRoute
+  '/api/documents/$id/review': typeof ApiDocumentsIdReviewRoute
   '/api/documents/$id/upload': typeof ApiDocumentsIdUploadRoute
 }
 export interface FileRoutesByTo {
@@ -230,6 +244,7 @@ export interface FileRoutesByTo {
   '/terms': typeof TermsRoute
   '/verify-email': typeof VerifyEmailRoute
   '/api/batches': typeof ApiBatchesRouteWithChildren
+  '/api/documents': typeof ApiDocumentsRouteWithChildren
   '/api/workspace': typeof ApiWorkspaceRoute
   '/app/invoices': typeof AppInvoicesRoute
   '/app/new': typeof AppNewRoute
@@ -244,6 +259,7 @@ export interface FileRoutesByTo {
   '/api/documents/$id/cancel': typeof ApiDocumentsIdCancelRoute
   '/api/documents/$id/content': typeof ApiDocumentsIdContentRoute
   '/api/documents/$id/heartbeat': typeof ApiDocumentsIdHeartbeatRoute
+  '/api/documents/$id/review': typeof ApiDocumentsIdReviewRoute
   '/api/documents/$id/upload': typeof ApiDocumentsIdUploadRoute
 }
 export interface FileRoutesById {
@@ -262,6 +278,7 @@ export interface FileRoutesById {
   '/terms': typeof TermsRoute
   '/verify-email': typeof VerifyEmailRoute
   '/api/batches': typeof ApiBatchesRouteWithChildren
+  '/api/documents': typeof ApiDocumentsRouteWithChildren
   '/api/workspace': typeof ApiWorkspaceRoute
   '/app/invoices': typeof AppInvoicesRoute
   '/app/new': typeof AppNewRoute
@@ -276,6 +293,7 @@ export interface FileRoutesById {
   '/api/documents/$id/cancel': typeof ApiDocumentsIdCancelRoute
   '/api/documents/$id/content': typeof ApiDocumentsIdContentRoute
   '/api/documents/$id/heartbeat': typeof ApiDocumentsIdHeartbeatRoute
+  '/api/documents/$id/review': typeof ApiDocumentsIdReviewRoute
   '/api/documents/$id/upload': typeof ApiDocumentsIdUploadRoute
 }
 export interface FileRouteTypes {
@@ -295,6 +313,7 @@ export interface FileRouteTypes {
     | '/terms'
     | '/verify-email'
     | '/api/batches'
+    | '/api/documents'
     | '/api/workspace'
     | '/app/invoices'
     | '/app/new'
@@ -309,6 +328,7 @@ export interface FileRouteTypes {
     | '/api/documents/$id/cancel'
     | '/api/documents/$id/content'
     | '/api/documents/$id/heartbeat'
+    | '/api/documents/$id/review'
     | '/api/documents/$id/upload'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -325,6 +345,7 @@ export interface FileRouteTypes {
     | '/terms'
     | '/verify-email'
     | '/api/batches'
+    | '/api/documents'
     | '/api/workspace'
     | '/app/invoices'
     | '/app/new'
@@ -339,6 +360,7 @@ export interface FileRouteTypes {
     | '/api/documents/$id/cancel'
     | '/api/documents/$id/content'
     | '/api/documents/$id/heartbeat'
+    | '/api/documents/$id/review'
     | '/api/documents/$id/upload'
   id:
     | '__root__'
@@ -356,6 +378,7 @@ export interface FileRouteTypes {
     | '/terms'
     | '/verify-email'
     | '/api/batches'
+    | '/api/documents'
     | '/api/workspace'
     | '/app/invoices'
     | '/app/new'
@@ -370,6 +393,7 @@ export interface FileRouteTypes {
     | '/api/documents/$id/cancel'
     | '/api/documents/$id/content'
     | '/api/documents/$id/heartbeat'
+    | '/api/documents/$id/review'
     | '/api/documents/$id/upload'
   fileRoutesById: FileRoutesById
 }
@@ -388,9 +412,9 @@ export interface RootRouteChildren {
   TermsRoute: typeof TermsRoute
   VerifyEmailRoute: typeof VerifyEmailRoute
   ApiBatchesRoute: typeof ApiBatchesRouteWithChildren
+  ApiDocumentsRoute: typeof ApiDocumentsRouteWithChildren
   ApiWorkspaceRoute: typeof ApiWorkspaceRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
-  ApiDocumentsIdRoute: typeof ApiDocumentsIdRouteWithChildren
 }
 
 declare module '@tanstack/react-router' {
@@ -493,6 +517,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiBatchesRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/documents': {
+      id: '/api/documents'
+      path: '/api/documents'
+      fullPath: '/api/documents'
+      preLoaderRoute: typeof ApiDocumentsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/workspace': {
       id: '/api/workspace'
       path: '/api/workspace'
@@ -544,10 +575,10 @@ declare module '@tanstack/react-router' {
     }
     '/api/documents/$id': {
       id: '/api/documents/$id'
-      path: '/api/documents/$id'
+      path: '/$id'
       fullPath: '/api/documents/$id'
       preLoaderRoute: typeof ApiDocumentsIdRouteImport
-      parentRoute: typeof rootRouteImport
+      parentRoute: typeof ApiDocumentsRoute
     }
     '/app/batches/': {
       id: '/app/batches/'
@@ -589,6 +620,13 @@ declare module '@tanstack/react-router' {
       path: '/heartbeat'
       fullPath: '/api/documents/$id/heartbeat'
       preLoaderRoute: typeof ApiDocumentsIdHeartbeatRouteImport
+      parentRoute: typeof ApiDocumentsIdRoute
+    }
+    '/api/documents/$id/review': {
+      id: '/api/documents/$id/review'
+      path: '/review'
+      fullPath: '/api/documents/$id/review'
+      preLoaderRoute: typeof ApiDocumentsIdReviewRouteImport
       parentRoute: typeof ApiDocumentsIdRoute
     }
     '/api/documents/$id/upload': {
@@ -649,6 +687,7 @@ interface ApiDocumentsIdRouteChildren {
   ApiDocumentsIdCancelRoute: typeof ApiDocumentsIdCancelRoute
   ApiDocumentsIdContentRoute: typeof ApiDocumentsIdContentRoute
   ApiDocumentsIdHeartbeatRoute: typeof ApiDocumentsIdHeartbeatRoute
+  ApiDocumentsIdReviewRoute: typeof ApiDocumentsIdReviewRoute
   ApiDocumentsIdUploadRoute: typeof ApiDocumentsIdUploadRoute
 }
 
@@ -656,11 +695,24 @@ const ApiDocumentsIdRouteChildren: ApiDocumentsIdRouteChildren = {
   ApiDocumentsIdCancelRoute: ApiDocumentsIdCancelRoute,
   ApiDocumentsIdContentRoute: ApiDocumentsIdContentRoute,
   ApiDocumentsIdHeartbeatRoute: ApiDocumentsIdHeartbeatRoute,
+  ApiDocumentsIdReviewRoute: ApiDocumentsIdReviewRoute,
   ApiDocumentsIdUploadRoute: ApiDocumentsIdUploadRoute,
 }
 
 const ApiDocumentsIdRouteWithChildren = ApiDocumentsIdRoute._addFileChildren(
   ApiDocumentsIdRouteChildren,
+)
+
+interface ApiDocumentsRouteChildren {
+  ApiDocumentsIdRoute: typeof ApiDocumentsIdRouteWithChildren
+}
+
+const ApiDocumentsRouteChildren: ApiDocumentsRouteChildren = {
+  ApiDocumentsIdRoute: ApiDocumentsIdRouteWithChildren,
+}
+
+const ApiDocumentsRouteWithChildren = ApiDocumentsRoute._addFileChildren(
+  ApiDocumentsRouteChildren,
 )
 
 const rootRouteChildren: RootRouteChildren = {
@@ -678,9 +730,9 @@ const rootRouteChildren: RootRouteChildren = {
   TermsRoute: TermsRoute,
   VerifyEmailRoute: VerifyEmailRoute,
   ApiBatchesRoute: ApiBatchesRouteWithChildren,
+  ApiDocumentsRoute: ApiDocumentsRouteWithChildren,
   ApiWorkspaceRoute: ApiWorkspaceRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
-  ApiDocumentsIdRoute: ApiDocumentsIdRouteWithChildren,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
