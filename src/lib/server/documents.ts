@@ -12,6 +12,8 @@ import {
   sanitizeDownloadFilename,
   toAsciiHeaderFilename,
   type CancelUploadResponse,
+  type DeleteDocumentResponse,
+  type DocumentDetailResponse,
   type HeartbeatUploadResponse,
   type PersistedBatch,
   type PersistedDocument,
@@ -1009,17 +1011,27 @@ interface PreparedPdfUploadStream {
   releaseReader: () => Promise<void>;
 }
 
+interface PeekedPdfStreamHeader {
+  reader: ReadableStreamDefaultReader<Uint8Array>;
+  initialChunks: Uint8Array[];
+  initialBytes: number;
+  initialDone: boolean;
+}
+
 /**
- * Peeks only the first 5 bytes (`%PDF-`) before upstream storage is invoked,
- * then streams chunks without buffering the PDF while enforcing the exact
- * expected byte length and MAX_FILE_BYTES ceiling.
+ * Peeks only the leading bytes needed to verify a non-empty `%PDF-` stream
+ * without buffering the entire PDF in memory.
  */
-async function preparePdfUploadStream(
+async function peekPdfStreamHeader(
   body: ReadableStream<Uint8Array>,
-  expectedSizeBytes: number,
-  onStreamError: (err: HttpError) => void,
-  onChunkForwarded?: () => void,
-): Promise<PreparedPdfUploadStream> {
+  options: {
+    expectedSizeBytes: number;
+    emptyError: () => HttpError;
+    invalidSigError: () => HttpError;
+    exceedsSizeError: () => HttpError;
+    truncatedError?: () => HttpError;
+  },
+): Promise<PeekedPdfStreamHeader> {
   const reader = body.getReader();
   const initialChunks: Uint8Array[] = [];
   let initialBytes = 0;
@@ -1039,24 +1051,20 @@ async function preparePdfUploadStream(
         await reader.cancel().catch(() => {});
         throw new HttpError(413, "File exceeds the 50 MiB limit.", "PAYLOAD_TOO_LARGE");
       }
-      if (initialBytes > expectedSizeBytes) {
+      if (initialBytes > options.expectedSizeBytes) {
         await reader.cancel().catch(() => {});
-        throw new HttpError(
-          400,
-          "Uploaded payload exceeds the declared file size.",
-          "SIZE_MISMATCH",
-        );
+        throw options.exceedsSizeError();
       }
       initialChunks.push(value);
     }
 
+    if (initialBytes === 0) {
+      await reader.cancel().catch(() => {});
+      throw options.emptyError();
+    }
     if (initialBytes < PDF_SIG_LEN) {
       await reader.cancel().catch(() => {});
-      throw new HttpError(
-        400,
-        "File is not a valid PDF (missing %PDF- signature).",
-        "INVALID_PDF_SIGNATURE",
-      );
+      throw options.invalidSigError();
     }
 
     const header = new Uint8Array(PDF_SIG_LEN);
@@ -1070,25 +1078,55 @@ async function preparePdfUploadStream(
 
     if (!hasPdfSignature(header)) {
       await reader.cancel().catch(() => {});
-      throw new HttpError(
-        400,
-        "File is not a valid PDF (missing %PDF- signature).",
-        "INVALID_PDF_SIGNATURE",
-      );
+      throw options.invalidSigError();
     }
 
-    if (initialDone && initialBytes !== expectedSizeBytes) {
+    if (initialDone && initialBytes !== options.expectedSizeBytes && options.truncatedError) {
       await reader.cancel().catch(() => {});
-      throw new HttpError(
-        400,
-        "Uploaded stream was truncated before reaching the declared size.",
-        "TRUNCATED_STREAM",
-      );
+      throw options.truncatedError();
     }
   } catch (error) {
     await reader.cancel().catch(() => {});
     throw error;
   }
+
+  return { reader, initialChunks, initialBytes, initialDone };
+}
+
+/**
+ * Peeks only the first 5 bytes (`%PDF-`) before upstream storage is invoked,
+ * then streams chunks without buffering the PDF while enforcing the exact
+ * expected byte length and MAX_FILE_BYTES ceiling.
+ */
+async function preparePdfUploadStream(
+  body: ReadableStream<Uint8Array>,
+  expectedSizeBytes: number,
+  onStreamError: (err: HttpError) => void,
+  onChunkForwarded?: () => void,
+): Promise<PreparedPdfUploadStream> {
+  const { reader, initialChunks, initialDone } = await peekPdfStreamHeader(body, {
+    expectedSizeBytes,
+    emptyError: () =>
+      new HttpError(
+        400,
+        "File is not a valid PDF (missing %PDF- signature).",
+        "INVALID_PDF_SIGNATURE",
+      ),
+    invalidSigError: () =>
+      new HttpError(
+        400,
+        "File is not a valid PDF (missing %PDF- signature).",
+        "INVALID_PDF_SIGNATURE",
+      ),
+    exceedsSizeError: () =>
+      new HttpError(400, "Uploaded payload exceeds the declared file size.", "SIZE_MISMATCH"),
+    truncatedError: () =>
+      new HttpError(
+        400,
+        "Uploaded stream was truncated before reaching the declared size.",
+        "TRUNCATED_STREAM",
+      ),
+  });
 
   let initialCursor = 0;
   let streamedBytes = 0;
@@ -1466,9 +1504,398 @@ function formatContentDisposition(filename: string, asAttachment: boolean): stri
   return `${mode}; filename="${ascii}"; filename*=UTF-8''${encoded}`;
 }
 
+const ALLOWED_STORAGE_DOWNLOAD_MIMES = new Set([
+  PDF_MIME_TYPE,
+  "application/octet-stream",
+  "binary/octet-stream",
+]);
+
+/**
+ * Verifies the leading `%PDF-` bytes of an object storage response before
+ * committing `200 OK` headers, then streams remaining chunks lazily without
+ * buffering the PDF in memory.
+ */
+async function preparePdfDownloadStream(
+  body: ReadableStream<Uint8Array>,
+  expectedSizeBytes: number,
+): Promise<ReadableStream<Uint8Array>> {
+  const { reader, initialChunks, initialDone } = await peekPdfStreamHeader(body, {
+    expectedSizeBytes,
+    emptyError: () => new HttpError(502, "Stored PDF object is empty.", "DOCUMENT_CONTENT_CORRUPT"),
+    invalidSigError: () =>
+      new HttpError(502, "Stored object is not a valid PDF document.", "DOCUMENT_CONTENT_INVALID"),
+    exceedsSizeError: () =>
+      new HttpError(
+        502,
+        "Stored PDF object does not match the recorded document size.",
+        "DOCUMENT_CONTENT_MISMATCH",
+      ),
+    truncatedError: () =>
+      new HttpError(
+        502,
+        "Stored PDF object is incomplete or corrupted.",
+        "DOCUMENT_CONTENT_CORRUPT",
+      ),
+  });
+
+  let initialCursor = 0;
+  let streamedBytes = 0;
+
+  return new ReadableStream<Uint8Array>(
+    {
+      async pull(controller) {
+        if (initialCursor < initialChunks.length) {
+          const chunk = initialChunks[initialCursor++]!;
+          streamedBytes += chunk.byteLength;
+          controller.enqueue(chunk);
+          if (initialCursor >= initialChunks.length && initialDone) {
+            if (streamedBytes !== expectedSizeBytes) {
+              controller.error(
+                new HttpError(
+                  502,
+                  "Stored PDF object is incomplete or corrupted.",
+                  "DOCUMENT_CONTENT_CORRUPT",
+                ),
+              );
+              return;
+            }
+            controller.close();
+          }
+          return;
+        }
+
+        try {
+          for (;;) {
+            const { done, value } = await reader.read();
+            if (done) {
+              if (streamedBytes !== expectedSizeBytes) {
+                controller.error(
+                  new HttpError(
+                    502,
+                    "Stored PDF object is incomplete or corrupted.",
+                    "DOCUMENT_CONTENT_CORRUPT",
+                  ),
+                );
+                return;
+              }
+              controller.close();
+              return;
+            }
+            if (value.byteLength === 0) continue;
+            streamedBytes += value.byteLength;
+            if (streamedBytes > expectedSizeBytes || streamedBytes > MAX_FILE_BYTES) {
+              await reader.cancel().catch(() => {});
+              controller.error(
+                new HttpError(
+                  502,
+                  "Stored PDF object does not match the recorded document size.",
+                  "DOCUMENT_CONTENT_MISMATCH",
+                ),
+              );
+              return;
+            }
+            controller.enqueue(value);
+            return;
+          }
+        } catch (err) {
+          controller.error(err);
+        }
+      },
+      async cancel(reason) {
+        await reader.cancel(reason).catch(() => {});
+      },
+    },
+    { highWaterMark: 0 },
+  );
+}
+
+/**
+ * Retrieves workspace-scoped document metadata along with its owning batch.
+ * Never exposes B2 credentials, raw storage keys, or unrestricted URLs, and
+ * uses the same `404` response for cross-workspace and nonexistent IDs.
+ */
+export async function getWorkspaceDocumentDetail(
+  sql: Pick<SqlClient, "query">,
+  workspaceId: string,
+  documentId: string,
+): Promise<DocumentDetailResponse> {
+  if (!isUuid(workspaceId)) {
+    throw new HttpError(400, "Invalid workspace identifier.", "INVALID_WORKSPACE_ID");
+  }
+  if (!isUuid(documentId)) {
+    throw new HttpError(400, "Invalid document identifier.", "INVALID_DOCUMENT_ID");
+  }
+
+  try {
+    const rows = await sql.query(
+      `SELECT
+         d."id", d."workspace_id", d."batch_id", d."original_filename", d."mime_type",
+         d."file_size_bytes", d."storage_key", d."active_attempt_id", d."lease_expires_at",
+         d."upload_started_at", d."status", d."review_status", d."page_count", d."error_message",
+         d."uploaded_at", d."created_at", d."updated_at",
+         b."name" AS "batch_name",
+         b."status" AS "batch_status",
+         b."finalized_at" AS "batch_finalized_at",
+         b."created_at" AS "batch_created_at",
+         b."updated_at" AS "batch_updated_at"
+       FROM "documents" d
+       INNER JOIN "batches" b
+         ON b."id" = d."batch_id" AND b."workspace_id" = d."workspace_id"
+       WHERE d."id" = $1::uuid AND d."workspace_id" = $2::uuid
+       LIMIT 1`,
+      [documentId, workspaceId],
+    );
+
+    const row = rows[0];
+    if (!row) {
+      throw new HttpError(404, "Document not found.", "DOCUMENT_NOT_FOUND");
+    }
+
+    const doc = mapDocumentRow(row);
+    const batch = mapBatchRow({
+      id: row["batch_id"],
+      workspace_id: row["workspace_id"],
+      name: row["batch_name"],
+      status: row["batch_status"],
+      finalized_at: row["batch_finalized_at"],
+      created_at: row["batch_created_at"],
+      updated_at: row["batch_updated_at"],
+    });
+
+    return {
+      document: toPublicDocument(doc),
+      batch: toPublicBatch(batch),
+    };
+  } catch (error) {
+    rethrowDbError("getWorkspaceDocumentDetail", error);
+  }
+}
+
+/**
+ * Atomically deletes an individual workspace-owned document from an unfinalized
+ * batch while persisting any required B2 cleanup obligations in
+ * `storage_cleanup_outbox` (`reason = 'document_deleted'`) and recomputing
+ * the parent batch status in the same SQL statement.
+ */
+export async function deleteDocumentInWorkspace(
+  sql: Pick<SqlClient, "query">,
+  params: {
+    workspaceId: string;
+    documentId: string;
+    bucketName: string;
+  },
+): Promise<DeleteDocumentResponse> {
+  const { workspaceId, documentId, bucketName } = params;
+  if (!isUuid(workspaceId)) {
+    throw new HttpError(400, "Invalid workspace identifier.", "INVALID_WORKSPACE_ID");
+  }
+  if (!isUuid(documentId)) {
+    throw new HttpError(400, "Invalid document identifier.", "INVALID_DOCUMENT_ID");
+  }
+
+  try {
+    const rows = await sql.query(
+      `WITH batch_lock AS (
+         SELECT b."id", b."workspace_id", b."finalized_at"
+         FROM "batches" b
+         INNER JOIN "documents" d
+           ON d."batch_id" = b."id" AND d."workspace_id" = b."workspace_id"
+         WHERE d."id" = $1::uuid AND d."workspace_id" = $2::uuid
+         FOR UPDATE OF b
+       ),
+       doc_lock AS (
+         SELECT
+           d."id",
+           d."workspace_id",
+           d."batch_id",
+           d."status",
+           d."storage_key",
+           d."active_attempt_id",
+           d."lease_expires_at",
+           bl."finalized_at" AS "batch_finalized_at"
+         FROM "documents" d
+         INNER JOIN batch_lock bl
+           ON bl."id" = d."batch_id" AND bl."workspace_id" = d."workspace_id"
+         WHERE d."id" = $1::uuid AND d."workspace_id" = $2::uuid
+         FOR UPDATE OF d
+       ),
+       can_delete AS (
+         SELECT dl."id", dl."workspace_id", dl."batch_id"
+         FROM doc_lock dl
+         WHERE dl."batch_finalized_at" IS NULL
+           AND NOT (
+             dl."status" = 'uploading'
+             AND (dl."lease_expires_at" IS NULL OR dl."lease_expires_at" > clock_timestamp())
+           )
+       ),
+       doc_keys AS (
+         SELECT DISTINCT
+           dl."id" AS "document_id",
+           dl."workspace_id",
+           dl."batch_id",
+           k."storage_key"
+         FROM doc_lock dl
+         INNER JOIN can_delete cd ON cd."id" = dl."id"
+         CROSS JOIN LATERAL (
+           SELECT dl."storage_key" AS "storage_key"
+           WHERE dl."storage_key" IS NOT NULL
+           UNION
+           SELECT ('gathr/' || dl."workspace_id"::text || '/' || dl."batch_id"::text || '/' || dl."id"::text || '/' || dl."active_attempt_id"::text || '.pdf') AS "storage_key"
+           WHERE dl."active_attempt_id" IS NOT NULL
+         ) k
+       ),
+       inserted_outbox AS (
+         INSERT INTO "storage_cleanup_outbox" (
+           "storage_key", "bucket_name", "workspace_id", "batch_id", "document_id", "reason"
+         )
+         SELECT
+           dk."storage_key",
+           NULLIF($3::text, ''),
+           dk."workspace_id",
+           dk."batch_id",
+           dk."document_id",
+           'document_deleted'
+         FROM doc_keys dk
+         ON CONFLICT ("storage_key") WHERE "status" IN ('pending', 'processing')
+         DO NOTHING
+         RETURNING "id"
+       ),
+       deleted_doc AS (
+         DELETE FROM "documents" d
+         USING can_delete cd
+         WHERE d."id" = cd."id"
+           AND d."workspace_id" = cd."workspace_id"
+           AND (SELECT count(*) FROM inserted_outbox) >= 0
+         RETURNING d."id", d."batch_id", d."workspace_id"
+       ),
+       remaining_counts AS (
+         SELECT
+           cd."batch_id",
+           cd."workspace_id",
+           COUNT(d."id") FILTER (WHERE d."id" <> cd."id")::int AS "total_count",
+           COUNT(d."id") FILTER (WHERE d."id" <> cd."id" AND d."status" IN ('pending_upload', 'uploading'))::int AS "active_count",
+           COUNT(d."id") FILTER (WHERE d."id" <> cd."id" AND d."status" = 'uploaded')::int AS "uploaded_count"
+         FROM can_delete cd
+         LEFT JOIN "documents" d
+           ON d."batch_id" = cd."batch_id" AND d."workspace_id" = cd."workspace_id"
+         GROUP BY cd."batch_id", cd."workspace_id"
+       ),
+       updated_batch AS (
+         UPDATE "batches" b
+         SET
+           "status" = CASE
+             WHEN rc."active_count" > 0 THEN 'uploading'
+             WHEN rc."total_count" > 0 AND rc."uploaded_count" = rc."total_count" THEN 'uploaded'
+             WHEN rc."uploaded_count" > 0 THEN 'partial'
+             ELSE 'failed'
+           END,
+           "updated_at" = clock_timestamp()
+         FROM remaining_counts rc
+         WHERE b."id" = rc."batch_id"
+           AND b."workspace_id" = rc."workspace_id"
+           AND (SELECT count(*) FROM deleted_doc) > 0
+         RETURNING b."id", b."workspace_id", b."name", b."status", b."finalized_at", b."created_at", b."updated_at"
+       )
+       SELECT
+         dl."id" AS "found_id",
+         dl."batch_id" AS "target_batch_id",
+         dl."batch_finalized_at",
+         dl."status" AS "doc_status",
+         dd."id" AS "deleted_id",
+         (SELECT count(*)::int FROM doc_keys) AS "required_obligations",
+         ub."id" AS "batch_id",
+         ub."workspace_id",
+         ub."name" AS "batch_name",
+         ub."status" AS "batch_status",
+         ub."finalized_at" AS "batch_finalized_at_out",
+         ub."created_at" AS "batch_created_at",
+         ub."updated_at" AS "batch_updated_at"
+       FROM doc_lock dl
+       LEFT JOIN deleted_doc dd ON dd."id" = dl."id"
+       LEFT JOIN updated_batch ub ON ub."id" = dl."batch_id"`,
+      [documentId, workspaceId, bucketName.trim()],
+    );
+
+    const row = rows[0];
+    if (!row || !row["found_id"]) {
+      throw new HttpError(404, "Document not found.", "DOCUMENT_NOT_FOUND");
+    }
+
+    const batchId = String(row["target_batch_id"]);
+    if (!row["deleted_id"]) {
+      if (row["batch_finalized_at"] != null) {
+        logLifecycleEvent("info", {
+          operation: "delete_document",
+          outcome: "rejected",
+          batchId,
+          documentId,
+          failureCategory: "batch_finalized",
+        });
+        throw new HttpError(
+          409,
+          "This batch has been finalized and its documents can no longer be deleted individually.",
+          "BATCH_FINALIZED",
+        );
+      }
+      logLifecycleEvent("info", {
+        operation: "delete_document",
+        outcome: "rejected",
+        batchId,
+        documentId,
+        failureCategory: "conflict",
+      });
+      throw new HttpError(
+        409,
+        "Cancel the active upload before deleting this document.",
+        "UPLOAD_IN_PROGRESS",
+      );
+    }
+
+    const batch = mapBatchRow({
+      id: row["batch_id"],
+      workspace_id: row["workspace_id"],
+      name: row["batch_name"],
+      status: row["batch_status"],
+      finalized_at: row["batch_finalized_at_out"],
+      created_at: row["batch_created_at"],
+      updated_at: row["batch_updated_at"],
+    });
+    const required = Number(row["required_obligations"] ?? 0);
+
+    logLifecycleEvent("info", {
+      operation: "delete_document",
+      outcome: "succeeded",
+      batchId,
+      documentId,
+      count: required,
+      reason: "document_deleted",
+    });
+
+    return {
+      deleted: true,
+      documentId,
+      batchId,
+      batch: toPublicBatch(batch),
+      cleanupJobsQueued: required,
+    };
+  } catch (error) {
+    if (!(error instanceof HttpError)) {
+      logLifecycleEvent("error", {
+        operation: "delete_document",
+        outcome: "failed",
+        documentId,
+        failureCategory: "outbox_persistence_failed",
+        detail: error instanceof Error ? error.message : String(error),
+      });
+    }
+    rethrowDbError("deleteDocumentInWorkspace", error);
+  }
+}
+
 /**
  * Handles GET /api/documents/:id/content — authorized, workspace-scoped private
- * PDF streaming retrieval with strict private/no-store caching headers.
+ * PDF streaming retrieval with strict private/no-store caching headers and
+ * stream integrity checks before committing a 200 PDF response.
  */
 export async function streamOwnedDocumentContent(
   request: Request,
@@ -1488,6 +1915,9 @@ export async function streamOwnedDocumentContent(
   if (doc.status !== "uploaded" || !doc.storageKey || !isSafeStorageKey(doc.storageKey)) {
     throw new HttpError(409, "Document PDF is not available yet.", "DOCUMENT_NOT_UPLOADED");
   }
+  if (!Number.isSafeInteger(doc.fileSizeBytes) || doc.fileSizeBytes <= 0) {
+    throw new HttpError(502, "Document size metadata is invalid.", "DOCUMENT_CONTENT_INVALID");
+  }
 
   const b2 = deps.b2 ?? getB2StorageClient(request);
 
@@ -1498,12 +1928,40 @@ export async function streamOwnedDocumentContent(
       signal: request.signal,
     });
   } catch (error) {
-    if (error instanceof B2ObjectNotFoundError) {
+    if (
+      error instanceof B2ObjectNotFoundError ||
+      (error instanceof B2StorageError && (error.status === 404 || error.s3Code === "NoSuchKey"))
+    ) {
       throw new HttpError(404, "Stored PDF object could not be found.", "DOCUMENT_CONTENT_MISSING");
     }
     if (error instanceof HttpError) throw error;
     throw new HttpError(502, "Could not retrieve PDF from object storage.", "STORAGE_UNAVAILABLE");
   }
+
+  if (obj.contentLength === 0) {
+    await obj.body.cancel().catch(() => {});
+    throw new HttpError(502, "Stored PDF object is empty.", "DOCUMENT_CONTENT_CORRUPT");
+  }
+  if (obj.contentLength !== null && obj.contentLength !== doc.fileSizeBytes) {
+    await obj.body.cancel().catch(() => {});
+    throw new HttpError(
+      502,
+      "Stored PDF object does not match the recorded document size.",
+      "DOCUMENT_CONTENT_MISMATCH",
+    );
+  }
+
+  const normalizedObjMime = normalizeMimeType(obj.contentType);
+  if (normalizedObjMime && !ALLOWED_STORAGE_DOWNLOAD_MIMES.has(normalizedObjMime)) {
+    await obj.body.cancel().catch(() => {});
+    throw new HttpError(
+      502,
+      "Stored object is not a valid PDF document.",
+      "DOCUMENT_CONTENT_INVALID",
+    );
+  }
+
+  const verifiedStream = await preparePdfDownloadStream(obj.body, doc.fileSizeBytes);
 
   const downloadParam = url.searchParams.get("download");
   const dispositionParam = url.searchParams.get("disposition");
@@ -1513,16 +1971,15 @@ export async function streamOwnedDocumentContent(
     "Content-Type": PDF_MIME_TYPE,
     "Content-Disposition": formatContentDisposition(doc.originalFilename, asAttachment),
     "Cache-Control": "private, no-store",
+    Pragma: "no-cache",
     "X-Content-Type-Options": "nosniff",
     "Referrer-Policy": "no-referrer",
+    "X-Frame-Options": "SAMEORIGIN",
+    "Content-Security-Policy": "frame-ancestors 'self'",
+    "Content-Length": String(obj.contentLength ?? doc.fileSizeBytes),
   });
 
-  const resolvedLength = obj.contentLength ?? doc.fileSizeBytes;
-  if (Number.isSafeInteger(resolvedLength) && resolvedLength > 0) {
-    headers.set("Content-Length", String(resolvedLength));
-  }
-
-  return new Response(obj.body, { status: 200, headers });
+  return new Response(verifiedStream, { status: 200, headers });
 }
 
 export function methodNotAllowedResponse(allow: string): Response {
@@ -1535,6 +1992,7 @@ export function methodNotAllowedResponse(allow: string): Response {
         "Content-Type": "application/json; charset=utf-8",
         "Cache-Control": "private, no-store",
         "X-Content-Type-Options": "nosniff",
+        "Referrer-Policy": "no-referrer",
       },
     },
   );

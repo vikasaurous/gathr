@@ -57,6 +57,7 @@ export const Route = createFileRoute("/api/documents/$id/upload")({
   server: {
     handlers: {
       PUT: async ({ request, params }) => handleUploadDocument(request, params.id),
+      ANY: () => closeConnectionOnError(methodNotAllowedResponse("PUT")),
     },
   },
 });

@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { ArrowUpDown, Plus, RefreshCw, Search } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { EmptyState, FilterTabs, PageHeader } from "@/components/gathr/common";
 import { IngestionBatchStatusPill, Pill } from "@/components/gathr/status";
 import { Button } from "@/components/ui/button";
@@ -34,24 +34,48 @@ export const Route = createFileRoute("/app/batches/")({
 type F = "all" | BatchIngestionStatus;
 type SortOrder = "newest" | "oldest";
 
-function Batches() {
+export function Batches() {
   const [batches, setBatches] = useState<PersistedBatchSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [authExpired, setAuthExpired] = useState(false);
   const [filter, setFilter] = useState<F>("all");
   const [q, setQ] = useState("");
   const [sortOrder, setSortOrder] = useState<SortOrder>("newest");
+  const loadSeqRef = useRef(0);
+  const activeControllerRef = useRef<AbortController | null>(null);
 
-  const loadBatches = useCallback(async (signal?: AbortSignal) => {
+  const loadBatches = useCallback(async (externalSignal?: AbortSignal) => {
+    const seq = ++loadSeqRef.current;
+    activeControllerRef.current?.abort();
+    const localController = new AbortController();
+    activeControllerRef.current = localController;
+    const onExternalAbort = () => localController.abort();
+    if (externalSignal) {
+      if (externalSignal.aborted) {
+        localController.abort();
+      } else {
+        externalSignal.addEventListener("abort", onExternalAbort, { once: true });
+      }
+    }
+    const signal = localController.signal;
+
     setLoading(true);
     setLoadError(null);
+    setAuthExpired(false);
     try {
       const res = await fetch("/api/batches", {
         method: "GET",
         credentials: "same-origin",
-        ...(signal ? { signal } : {}),
+        signal,
       });
-      if (signal?.aborted) return;
+      if (signal.aborted || seq !== loadSeqRef.current) return;
+      if (res.status === 401) {
+        setAuthExpired(true);
+        setLoadError("Your session has expired. Please sign in again to view your batches.");
+        setLoading(false);
+        return;
+      }
       if (!res.ok) {
         let message = "Could not load workspace batches.";
         try {
@@ -60,15 +84,23 @@ function Batches() {
         } catch {
           // Keep safe fallback message
         }
+        if (signal.aborted || seq !== loadSeqRef.current) return;
         setLoadError(message);
         setLoading(false);
         return;
       }
       const data = (await res.json()) as BatchListResponse;
+      if (signal.aborted || seq !== loadSeqRef.current) return;
       setBatches(Array.isArray(data.batches) ? data.batches : []);
       setLoading(false);
     } catch (err) {
-      if (signal?.aborted || (err instanceof Error && err.name === "AbortError")) return;
+      if (
+        signal.aborted ||
+        seq !== loadSeqRef.current ||
+        (err instanceof Error && err.name === "AbortError")
+      ) {
+        return;
+      }
       // In non-HTTP test environments (e.g., jsdom routing unit tests without mocked fetch),
       // treat relative-URL fetch TypeError as empty initial list instead of crashing navigation.
       if (typeof window !== "undefined" && !window.location?.origin?.startsWith("http")) {
@@ -78,13 +110,18 @@ function Batches() {
       }
       setLoadError("Network error while loading workspace batches.");
       setLoading(false);
+    } finally {
+      externalSignal?.removeEventListener("abort", onExternalAbort);
     }
   }, []);
 
   useEffect(() => {
     const controller = new AbortController();
     void loadBatches(controller.signal);
-    return () => controller.abort();
+    return () => {
+      controller.abort();
+      activeControllerRef.current?.abort();
+    };
   }, [loadBatches]);
 
   const rows = useMemo(
@@ -123,11 +160,22 @@ function Batches() {
         eyebrow="Archive"
         title="All batches"
         actions={
-          <Button variant="ink" asChild>
-            <Link to="/app/new">
-              <Plus /> New batch
-            </Link>
-          </Button>
+          <>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={loading}
+              onClick={() => void loadBatches()}
+              aria-label="Refresh batches"
+            >
+              <RefreshCw className="size-4" /> Refresh
+            </Button>
+            <Button variant="ink" asChild>
+              <Link to="/app/new">
+                <Plus /> New batch
+              </Link>
+            </Button>
+          </>
         }
       >
         Every upload, with its source files and upload status.
@@ -141,6 +189,7 @@ function Batches() {
               value={q}
               onChange={(e) => setQ(e.target.value)}
               placeholder="Search batches"
+              aria-label="Search batches"
               className="bg-surface pl-9"
             />
           </div>
@@ -164,14 +213,27 @@ function Batches() {
       </div>
 
       {loading ? (
-        <p className="py-12 text-[14px] text-muted-foreground">Loading batches…</p>
+        <p role="status" aria-live="polite" className="py-12 text-[14px] text-muted-foreground">
+          Loading batches…
+        </p>
       ) : loadError ? (
         <EmptyState
           title="Could not load batches."
           action={
-            <Button variant="outline" onClick={() => void loadBatches()}>
-              <RefreshCw className="size-4" /> Retry
-            </Button>
+            authExpired ? (
+              <Button variant="ink" asChild>
+                <Link
+                  to="/login"
+                  search={{ verified: undefined, email: undefined, error: undefined }}
+                >
+                  Sign in
+                </Link>
+              </Button>
+            ) : (
+              <Button variant="outline" onClick={() => void loadBatches()}>
+                <RefreshCw className="size-4" /> Retry
+              </Button>
+            )
           }
         >
           {loadError}

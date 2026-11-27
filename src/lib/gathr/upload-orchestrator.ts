@@ -373,7 +373,15 @@ export function createUploadOrchestrator(options?: {
       const map = batches.get(batchId);
       if (!map || map.size === 0) return;
 
+      const serverIdSet = new Set(serverDocs.map((d) => d.id));
       let changed = false;
+      for (const existingDocId of Array.from(map.keys())) {
+        if (!serverIdSet.has(existingDocId) && !activeHandles.has(existingDocId)) {
+          removeFromPending(existingDocId);
+          map.delete(existingDocId);
+          changed = true;
+        }
+      }
       for (const doc of serverDocs) {
         const entry = map.get(doc.id);
         if (!entry) continue;
@@ -646,6 +654,20 @@ export function createUploadOrchestrator(options?: {
 
     unregisterCallback(batchId: string): void {
       batchCallbacks.delete(batchId);
+    },
+
+    removeDocument(batchId: string, documentId: string): void {
+      removeFromPending(documentId);
+      const handle = activeHandles.get(documentId);
+      if (handle) {
+        handle.abort();
+        activeHandles.delete(documentId);
+      }
+      const map = batches.get(batchId);
+      if (map && map.delete(documentId)) {
+        invalidateBatchSnapshot(batchId);
+        emit();
+      }
     },
 
     getBatchEntries(batchId: string): ReadonlyMap<string, DocumentUploadEntry> {

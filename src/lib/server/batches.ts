@@ -40,6 +40,7 @@ export function toPublicBatch(row: OwnedBatchRow): PersistedBatch {
 }
 
 export function toPublicDocument(row: OwnedDocumentRow): PersistedDocument {
+  const isUploading = row.status === "uploading";
   return {
     id: row.id,
     batchId: row.batchId,
@@ -52,8 +53,8 @@ export function toPublicDocument(row: OwnedDocumentRow): PersistedDocument {
     errorMessage: row.errorMessage,
     uploadedAt: row.uploadedAt,
     createdAt: row.createdAt,
-    ...(row.activeAttemptId ? { activeAttemptId: row.activeAttemptId } : {}),
-    ...(row.leaseExpiresAt ? { leaseExpiresAt: row.leaseExpiresAt } : {}),
+    ...(isUploading && row.activeAttemptId ? { activeAttemptId: row.activeAttemptId } : {}),
+    ...(isUploading && row.leaseExpiresAt ? { leaseExpiresAt: row.leaseExpiresAt } : {}),
   };
 }
 
@@ -325,34 +326,80 @@ export async function createBatchInWorkspace(
   }
 }
 
+export interface ListWorkspaceBatchesOptions {
+  status?: BatchIngestionStatus | undefined;
+  query?: string | undefined;
+  limit?: number | undefined;
+  offset?: number | undefined;
+}
+
 export async function listWorkspaceBatches(
   sql: Pick<SqlClient, "query">,
   workspaceId: string,
+  options?: ListWorkspaceBatchesOptions,
 ): Promise<PersistedBatchSummary[]> {
+  if (!isUuid(workspaceId)) {
+    throw new HttpError(400, "Invalid workspace identifier.", "INVALID_WORKSPACE_ID");
+  }
+
+  const rawLimit = options?.limit ?? MAX_BATCH_LIST_LIMIT;
+  const limit = Math.max(1, Math.min(MAX_BATCH_LIST_LIMIT, Math.floor(rawLimit)));
+  const offset = Math.max(0, Math.floor(options?.offset ?? 0));
+  const statusFilter = options?.status ?? null;
+  const searchRaw = options?.query?.trim() ?? "";
+  const escapedSearch = searchRaw ? `%${searchRaw.replace(/[\\%_]/g, "\\$&")}%` : null;
+
   try {
-    const rows = await sql.query(
-      `SELECT
-         b."id",
-         b."workspace_id",
-         b."name",
-         b."status",
-         b."finalized_at",
-         b."created_at",
-         b."updated_at",
-         COUNT(d."id")::int AS "document_count",
-         COUNT(d."id") FILTER (WHERE d."status" = 'pending_upload')::int AS "pending_count",
-         COUNT(d."id") FILTER (WHERE d."status" = 'uploaded')::int AS "uploaded_count",
-         COUNT(d."id") FILTER (WHERE d."status" = 'failed')::int AS "failed_count",
-         COALESCE(SUM(d."file_size_bytes"), 0)::bigint AS "total_size_bytes"
-       FROM "batches" b
-       LEFT JOIN "documents" d
-         ON d."batch_id" = b."id" AND d."workspace_id" = b."workspace_id"
-       WHERE b."workspace_id" = $1::uuid
-       GROUP BY b."id"
-       ORDER BY b."created_at" DESC
-       LIMIT $2`,
-      [workspaceId, MAX_BATCH_LIST_LIMIT],
-    );
+    const useFilteredQuery = Boolean(statusFilter || escapedSearch || offset > 0);
+    const rows = useFilteredQuery
+      ? await sql.query(
+          `SELECT
+             b."id",
+             b."workspace_id",
+             b."name",
+             b."status",
+             b."finalized_at",
+             b."created_at",
+             b."updated_at",
+             COUNT(d."id")::int AS "document_count",
+             COUNT(d."id") FILTER (WHERE d."status" = 'pending_upload')::int AS "pending_count",
+             COUNT(d."id") FILTER (WHERE d."status" = 'uploaded')::int AS "uploaded_count",
+             COUNT(d."id") FILTER (WHERE d."status" = 'failed')::int AS "failed_count",
+             COALESCE(SUM(d."file_size_bytes"), 0)::bigint AS "total_size_bytes"
+           FROM "batches" b
+           LEFT JOIN "documents" d
+             ON d."batch_id" = b."id" AND d."workspace_id" = b."workspace_id"
+           WHERE b."workspace_id" = $1::uuid
+             AND ($3::text IS NULL OR b."status" = $3::text)
+             AND ($4::text IS NULL OR b."name" ILIKE $4::text ESCAPE '\\' OR b."id"::text ILIKE $4::text ESCAPE '\\')
+           GROUP BY b."id"
+           ORDER BY b."created_at" DESC
+           LIMIT $2::integer OFFSET $5::integer`,
+          [workspaceId, limit, statusFilter, escapedSearch, offset],
+        )
+      : await sql.query(
+          `SELECT
+             b."id",
+             b."workspace_id",
+             b."name",
+             b."status",
+             b."finalized_at",
+             b."created_at",
+             b."updated_at",
+             COUNT(d."id")::int AS "document_count",
+             COUNT(d."id") FILTER (WHERE d."status" = 'pending_upload')::int AS "pending_count",
+             COUNT(d."id") FILTER (WHERE d."status" = 'uploaded')::int AS "uploaded_count",
+             COUNT(d."id") FILTER (WHERE d."status" = 'failed')::int AS "failed_count",
+             COALESCE(SUM(d."file_size_bytes"), 0)::bigint AS "total_size_bytes"
+           FROM "batches" b
+           LEFT JOIN "documents" d
+             ON d."batch_id" = b."id" AND d."workspace_id" = b."workspace_id"
+           WHERE b."workspace_id" = $1::uuid
+           GROUP BY b."id"
+           ORDER BY b."created_at" DESC
+           LIMIT $2`,
+          [workspaceId, limit],
+        );
 
     return rows.map((row) => ({
       ...toPublicBatch(mapBatchRow(row)),

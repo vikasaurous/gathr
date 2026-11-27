@@ -134,6 +134,19 @@ export interface DeleteBatchResponse {
   cleanupJobsQueued: number;
 }
 
+export interface DocumentDetailResponse {
+  document: PersistedDocument;
+  batch: PersistedBatch;
+}
+
+export interface DeleteDocumentResponse {
+  deleted: boolean;
+  documentId: string;
+  batchId: string;
+  batch: PersistedBatch;
+  cleanupJobsQueued: number;
+}
+
 export interface BatchValidationIssue {
   index?: number | undefined;
   field?: string | undefined;

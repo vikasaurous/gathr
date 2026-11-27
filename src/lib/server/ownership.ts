@@ -331,12 +331,14 @@ export async function requireOwnedDocument(
   }
 
   const rows = await sql.query(
-    `SELECT "id", "workspace_id", "batch_id", "original_filename", "mime_type",
-            "file_size_bytes", "storage_key", "active_attempt_id", "lease_expires_at",
-            "upload_started_at", "status", "review_status", "page_count", "error_message",
-            "uploaded_at", "created_at", "updated_at"
-     FROM "documents"
-     WHERE "id" = $1 AND "workspace_id" = $2
+    `SELECT d."id", d."workspace_id", d."batch_id", d."original_filename", d."mime_type",
+            d."file_size_bytes", d."storage_key", d."active_attempt_id", d."lease_expires_at",
+            d."upload_started_at", d."status", d."review_status", d."page_count", d."error_message",
+            d."uploaded_at", d."created_at", d."updated_at"
+     FROM "documents" d
+     INNER JOIN "batches" b
+       ON b."id" = d."batch_id" AND b."workspace_id" = d."workspace_id"
+     WHERE d."id" = $1 AND d."workspace_id" = $2
      LIMIT 1`,
     [documentId, workspaceId],
   );

@@ -290,14 +290,8 @@ describe("PersistedBatchView upload progress, cancel, retry, re-attach, and priv
     await waitFor(() => {
       expect(xhrs).toHaveLength(3);
     });
-    expect(screen.getByRole("link", { name: "View one.pdf" })).toHaveAttribute(
-      "href",
-      `/api/documents/${docs[0]!.id}/content`,
-    );
-    expect(screen.getByRole("link", { name: "Download one.pdf" })).toHaveAttribute(
-      "href",
-      `/api/documents/${docs[0]!.id}/content?download=1`,
-    );
+    expect(screen.getByRole("button", { name: "View one.pdf" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Download one.pdf" })).toBeInTheDocument();
 
     // Fail second XHR -> displays server error message and offers Retry button
     act(() => {
