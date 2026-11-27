@@ -97,3 +97,54 @@ export function toSafeErrorResponse(error: unknown): Response {
   }
   return jsonResponse({ error: "An unexpected server error occurred." }, 500);
 }
+
+export async function readBoundedJsonBody(
+  request: Request,
+  maxBytes = 64 * 1024,
+): Promise<unknown> {
+  const contentType = request.headers.get("content-type") ?? "";
+  if (contentType.split(";")[0]?.trim().toLowerCase() !== "application/json") {
+    throw new HttpError(415, "Content-Type must be application/json.", "UNSUPPORTED_MEDIA_TYPE");
+  }
+
+  const contentLengthHeader = request.headers.get("content-length");
+  if (contentLengthHeader !== null) {
+    const declaredLength = Number(contentLengthHeader);
+    if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
+      throw new HttpError(413, "Request payload is too large.", "PAYLOAD_TOO_LARGE");
+    }
+  }
+
+  let rawText = "";
+  if (request.body) {
+    const reader = request.body.getReader();
+    const decoder = new TextDecoder();
+    let totalBytes = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      totalBytes += value.byteLength;
+      if (totalBytes > maxBytes) {
+        await reader.cancel().catch(() => {});
+        throw new HttpError(413, "Request payload is too large.", "PAYLOAD_TOO_LARGE");
+      }
+      rawText += decoder.decode(value, { stream: true });
+    }
+    rawText += decoder.decode();
+  } else {
+    rawText = await request.text();
+    if (new TextEncoder().encode(rawText).byteLength > maxBytes) {
+      throw new HttpError(413, "Request payload is too large.", "PAYLOAD_TOO_LARGE");
+    }
+  }
+
+  if (!rawText.trim()) {
+    throw new HttpError(400, "Request body is required.", "INVALID_JSON");
+  }
+
+  try {
+    return JSON.parse(rawText);
+  } catch {
+    throw new HttpError(400, "Malformed JSON request body.", "INVALID_JSON");
+  }
+}

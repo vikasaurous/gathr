@@ -3,6 +3,7 @@ import {
   AlertCircle,
   ArrowLeft,
   CheckCircle2,
+  ClipboardCheck,
   Download,
   Eye,
   FileText,
@@ -19,7 +20,9 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "
 import { toast } from "sonner";
 import { ConfirmDialog, EmptyState, FilterTabs } from "@/components/gathr/common";
 import { DocumentPreviewDialog } from "@/components/gathr/document-preview-dialog";
+import { PersistedDocumentReviewDialog } from "@/components/gathr/persisted-document-review-dialog";
 import {
+  DocumentReviewStatusPill,
   DocumentUploadStatusPill,
   IngestionBatchStatusPill,
   Pill,
@@ -43,13 +46,17 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { downloadCsv, persistedDocumentsToCsv } from "@/lib/gathr/export";
 import { formatBytes, formatDate } from "@/lib/gathr/format";
 import {
   checkPdfFileMetadata,
+  DOCUMENT_REVIEW_STATUSES,
+  formatReviewStatusLabel,
   hasValidPdfHeader,
   type BatchDetailResponse,
   type DeleteDocumentResponse,
   type DocumentUploadStatus,
+  type EffectiveDocumentReviewState,
   type FinalizeBatchResponse,
   type PersistedBatch,
   type PersistedDocument,
@@ -61,12 +68,17 @@ import {
 } from "@/lib/gathr/upload-orchestrator";
 
 type DocFilter = "all" | DocumentUploadStatus;
+type ReviewFilter = "all" | EffectiveDocumentReviewState;
 
 export function PersistedBatchView({
   batchId,
+  selectedDocId,
+  onSelectDoc,
   onDeleted,
 }: {
   batchId: string;
+  selectedDocId?: string | undefined;
+  onSelectDoc?: ((docId: string | undefined) => void) | undefined;
   onDeleted?: (() => void) | undefined;
 }) {
   const [state, setState] = useState<
@@ -83,6 +95,16 @@ export function PersistedBatchView({
   const [deletingDocIds, setDeletingDocIds] = useState<Record<string, boolean>>({});
   const [previewDoc, setPreviewDoc] = useState<PersistedDocument | null>(null);
   const previewOpenerRef = useRef<HTMLElement | null>(null);
+  const [localReviewDocId, setLocalReviewDocId] = useState<string | null>(null);
+  const reviewOpenerRef = useRef<HTMLElement | null>(null);
+  const activeReviewDocId = selectedDocId ?? localReviewDocId;
+  const setReviewDocId = useCallback(
+    (docId: string | null) => {
+      setLocalReviewDocId(docId);
+      onSelectDoc?.(docId ?? undefined);
+    },
+    [onSelectDoc],
+  );
   const [pendingDocDelete, setPendingDocDelete] = useState<{
     doc: PersistedDocument;
     nextFocusDocId: string | null;
@@ -93,6 +115,7 @@ export function PersistedBatchView({
   const activeLoadControllerRef = useRef<AbortController | null>(null);
   const [docQuery, setDocQuery] = useState("");
   const [docFilter, setDocFilter] = useState<DocFilter>("all");
+  const [reviewFilter, setReviewFilter] = useState<ReviewFilter>("all");
   const [lifecycleError, setLifecycleError] = useState<string | null>(null);
   const [isFinalizing, setIsFinalizing] = useState(false);
   const [confirmIncompleteFinalize, setConfirmIncompleteFinalize] = useState(false);
@@ -349,6 +372,9 @@ export function PersistedBatchView({
       if (previewDoc?.id === doc.id) {
         setPreviewDoc(null);
       }
+      if (activeReviewDocId === doc.id) {
+        setReviewDocId(null);
+      }
       setState((prev) => {
         if (prev.status !== "ready") return prev;
         return {
@@ -590,7 +616,15 @@ export function PersistedBatchView({
   const { batch, documents } = state.data;
   const isFinalized = Boolean(batch.finalizedAt);
   const totalBytes = documents.reduce((sum, doc) => sum + doc.fileSizeBytes, 0);
-  const uploadedCount = documents.filter((doc) => doc.status === "uploaded").length;
+  const uploadedDocs = documents.filter((doc) => doc.status === "uploaded");
+  const uploadedCount = uploadedDocs.length;
+  const verifiedCount = uploadedDocs.filter((doc) => doc.reviewStatus === "verified").length;
+  const awaitingReviewCount = uploadedDocs.filter(
+    (doc) => doc.reviewStatus === null || doc.reviewStatus === "needs_review",
+  ).length;
+  const activeReviewDoc = activeReviewDocId
+    ? (uploadedDocs.find((doc) => doc.id === activeReviewDocId) ?? null)
+    : null;
   const failedCount = documents.filter((doc) => doc.status === "failed").length;
   const activeLocalCount = documents.filter((doc) => {
     const entry = uploadEntries.get(doc.id);
@@ -635,11 +669,36 @@ export function PersistedBatchView({
   const normalizedDocQuery = docQuery.trim().toLowerCase();
   const visibleDocRows = docRows.filter(({ doc, effectiveStatus }) => {
     if (docFilter !== "all" && effectiveStatus !== docFilter) return false;
+    if (reviewFilter !== "all") {
+      if (doc.status !== "uploaded") return false;
+      const docReviewState: EffectiveDocumentReviewState = doc.reviewStatus ?? "unreviewed";
+      if (docReviewState !== reviewFilter) return false;
+    }
     if (normalizedDocQuery) {
       return `${doc.originalFilename} ${doc.id}`.toLowerCase().includes(normalizedDocQuery);
     }
     return true;
   });
+
+  function handleExportBatchCsv() {
+    if (documents.length === 0) return;
+    const csv = persistedDocumentsToCsv(
+      documents.map((doc) => ({
+        ...doc,
+        batchName: batch.name,
+      })),
+    );
+    const slug =
+      batch.name
+        .replace(/\W+/g, "-")
+        .toLowerCase()
+        .replace(/^-+|-+$/g, "") || "batch";
+    const datePart = new Date().toISOString().slice(0, 10);
+    downloadCsv(`gathr_${slug}_${datePart}.csv`, csv);
+    toast.success(
+      `Exported ${documents.length} document record${documents.length === 1 ? "" : "s"}`,
+    );
+  }
 
   const docFilterOptions: { value: DocFilter; label: string; count: number }[] = (
     ["all", "uploaded", "uploading", "pending_upload", "failed"] as DocFilter[]
@@ -696,6 +755,17 @@ export function PersistedBatchView({
             <RefreshCw className={`size-3.5 ${isRefreshing ? "animate-spin" : ""}`} />{" "}
             {isRefreshing ? "Refreshing…" : "Refresh"}
           </Button>
+          {documents.length > 0 && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handleExportBatchCsv}
+              aria-label="Export batch CSV"
+            >
+              <Download className="size-3.5" /> Export CSV
+            </Button>
+          )}
           {!isFinalized && (
             <Button
               type="button"
@@ -762,6 +832,9 @@ export function PersistedBatchView({
         </div>
         <span className="num shrink-0 text-[11.5px] text-foreground">
           {uploadedCount}/{documents.length} uploaded
+          {uploadedCount > 0
+            ? ` · ${verifiedCount} verified · ${awaitingReviewCount} awaiting review`
+            : ""}
         </span>
       </div>
 
@@ -771,7 +844,7 @@ export function PersistedBatchView({
         </div>
       ) : (
         <section className="mt-8" aria-label="Prepared PDF documents">
-          <div className="mb-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div className="mb-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <h2
               ref={sectionHeadingRef}
               tabIndex={-1}
@@ -779,9 +852,23 @@ export function PersistedBatchView({
             >
               Documents ({documents.length})
             </h2>
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
               <FilterTabs value={docFilter} onChange={setDocFilter} options={docFilterOptions} />
-              <div className="relative sm:w-60">
+              <select
+                value={reviewFilter}
+                onChange={(e) => setReviewFilter(e.target.value as ReviewFilter)}
+                aria-label="Filter by review status"
+                className="h-8 rounded-md border border-border bg-surface px-2.5 text-[12.5px] text-foreground focus:border-primary focus:outline-none"
+              >
+                <option value="all">All review states</option>
+                <option value="unreviewed">Unreviewed</option>
+                {DOCUMENT_REVIEW_STATUSES.map((st) => (
+                  <option key={st} value={st}>
+                    {formatReviewStatusLabel(st)}
+                  </option>
+                ))}
+              </select>
+              <div className="relative sm:w-56">
                 <Search className="absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   value={docQuery}
@@ -804,13 +891,14 @@ export function PersistedBatchView({
                   onClick={() => {
                     setDocQuery("");
                     setDocFilter("all");
+                    setReviewFilter("all");
                   }}
                 >
                   Clear filters
                 </Button>
               }
             >
-              Try a different filename, document ID, or upload status filter.
+              Try a different filename, document ID, upload status, or review status filter.
             </EmptyState>
           ) : (
             <ul className="border-t border-foreground">
@@ -870,6 +958,9 @@ export function PersistedBatchView({
                       className="flex flex-col gap-3 border-b border-border py-4"
                       data-document-id={doc.id}
                       data-upload-status={effectiveStatus}
+                      data-review-status={
+                        doc.status === "uploaded" ? (doc.reviewStatus ?? "unreviewed") : "pending"
+                      }
                     >
                       <div className="flex flex-wrap items-center justify-between gap-4">
                         <div className="flex min-w-0 flex-1 items-start gap-3">
@@ -926,6 +1017,9 @@ export function PersistedBatchView({
 
                         <div className="flex flex-wrap items-center gap-2">
                           <DocumentUploadStatusPill status={effectiveStatus} />
+                          {doc.status === "uploaded" && (
+                            <DocumentReviewStatusPill status={doc.reviewStatus} />
+                          )}
 
                           {(isLocallyUploading || isLocallyQueued) && (
                             <Button
@@ -1056,6 +1150,18 @@ export function PersistedBatchView({
                               </Button>
                               <Button
                                 type="button"
+                                variant="default"
+                                size="sm"
+                                aria-label={`Review ${doc.originalFilename}`}
+                                onClick={(e) => {
+                                  reviewOpenerRef.current = e.currentTarget;
+                                  setReviewDocId(doc.id);
+                                }}
+                              >
+                                <ClipboardCheck className="size-3.5" /> Review
+                              </Button>
+                              <Button
+                                type="button"
                                 variant="ghost"
                                 size="sm"
                                 disabled={Boolean(downloadingDocIds[doc.id])}
@@ -1133,6 +1239,26 @@ export function PersistedBatchView({
         onDownload={(doc) => void handleDownloadDocument(doc)}
         onRefreshBatch={() => void loadBatch()}
         returnFocusTo={previewOpenerRef.current}
+      />
+
+      <PersistedDocumentReviewDialog
+        document={activeReviewDoc}
+        batch={batch}
+        uploadedDocuments={uploadedDocs}
+        open={Boolean(activeReviewDoc)}
+        onOpenChange={(open) => {
+          if (!open) setReviewDocId(null);
+        }}
+        onSelectDocument={(nextDoc) => setReviewDocId(nextDoc.id)}
+        onDocumentUpdated={(updatedDoc, updatedBatch) =>
+          handleServerUpdate({
+            document: updatedDoc,
+            batch: updatedBatch ?? batch,
+          })
+        }
+        onDownload={(doc) => void handleDownloadDocument(doc)}
+        onRefreshBatch={() => void loadBatch()}
+        returnFocusTo={reviewOpenerRef.current}
       />
 
       <AlertDialog

@@ -10,7 +10,8 @@ import {
   Settings,
 } from "lucide-react";
 import { Wordmark } from "@/components/gathr/brand";
-import { actions, useWorkspace } from "@/lib/gathr/store";
+import { usePendingReviewBadgeCount } from "@/lib/gathr/review-client";
+import { actions } from "@/lib/gathr/store";
 import { cn } from "@/lib/utils";
 import { getSessionFn } from "@/lib/auth/functions";
 import { getMyPlanFn } from "@/lib/plan/functions";
@@ -55,10 +56,12 @@ const NAV = [
 ] as const;
 
 function AppLayout() {
-  const ws = useWorkspace();
+  const pending = usePendingReviewBadgeCount();
   const { session, plan } = Route.useRouteContext();
   const user = session?.user;
   const displayName = user?.name?.trim() || user?.email || "Account";
+  const firstName = displayName.split(/\s+/)[0] || "Workspace";
+  const workspaceLabel = `${firstName}'s Workspace`;
   const initials =
     displayName
       .split(/\s+/)
@@ -67,7 +70,6 @@ function AppLayout() {
       .join("")
       .slice(0, 2)
       .toUpperCase() || "A";
-  const pending = ws.invoices.filter((i) => i.status === "needs_review").length;
   return (
     <div className="min-h-screen bg-background lg:grid lg:grid-cols-[232px_1fr]">
       <aside className="sticky top-0 hidden h-screen flex-col border-r border-border bg-secondary lg:flex">
@@ -88,7 +90,7 @@ function AppLayout() {
             >
               <n.icon className="size-4" strokeWidth={1.6} />
               <span className="flex-1">{n.label}</span>
-              {n.to === "/app/invoices" && pending > 0 && (
+              {n.to === "/app/invoices" && pending !== null && pending > 0 && (
                 <span className="num text-[11px] text-warning">{pending}</span>
               )}
             </Link>
@@ -107,7 +109,7 @@ function AppLayout() {
               {initials}
             </span>
             <div className="min-w-0 flex-1">
-              <p className="truncate text-[12.5px]">{ws.workspaceName}</p>
+              <p className="truncate text-[12.5px]">{workspaceLabel}</p>
               <p className="truncate text-[11px] text-muted-foreground">{displayName}</p>
             </div>
             <ChevronsUpDown className="size-3.5 text-muted-foreground" />

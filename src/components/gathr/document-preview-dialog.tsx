@@ -16,6 +16,7 @@ import {
   PDF_MIME_TYPE,
   type PersistedDocument,
 } from "@/lib/gathr/ingestion-types";
+import { cn } from "@/lib/utils";
 
 type PreviewState =
   | { status: "idle" }
@@ -23,38 +24,22 @@ type PreviewState =
   | { status: "ready"; blobUrl: string }
   | { status: "error"; message: string; unauthorized: boolean };
 
-export function DocumentPreviewDialog({
+export function PrivatePdfPreviewPane({
   document: doc,
-  open,
-  onOpenChange,
+  active,
   onDownload,
   onRefreshBatch,
-  returnFocusTo,
+  iframeClassName,
 }: {
   document: PersistedDocument | null;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
+  active: boolean;
   onDownload: (doc: PersistedDocument) => void;
   onRefreshBatch?: (() => void) | undefined;
-  returnFocusTo?: HTMLElement | null | undefined;
+  iframeClassName?: string | undefined;
 }) {
   const [preview, setPreview] = useState<PreviewState>({ status: "idle" });
   const [reloadNonce, setReloadNonce] = useState(0);
   const activeUrlRef = useRef<string | null>(null);
-  const openerRef = useRef<HTMLElement | null>(null);
-
-  useLayoutEffect(() => {
-    if (open && typeof globalThis.document !== "undefined") {
-      if (returnFocusTo) {
-        openerRef.current = returnFocusTo;
-      } else if (
-        globalThis.document.activeElement instanceof HTMLElement &&
-        globalThis.document.activeElement !== globalThis.document.body
-      ) {
-        openerRef.current = globalThis.document.activeElement;
-      }
-    }
-  }, [open, returnFocusTo]);
 
   const revokeActiveUrl = useCallback(() => {
     if (activeUrlRef.current && typeof URL.revokeObjectURL === "function") {
@@ -64,7 +49,7 @@ export function DocumentPreviewDialog({
   }, []);
 
   useEffect(() => {
-    if (!open || !doc) {
+    if (!active || !doc) {
       revokeActiveUrl();
       setPreview({ status: "idle" });
       return;
@@ -157,7 +142,140 @@ export function DocumentPreviewDialog({
       controller.abort();
       revokeActiveUrl();
     };
-  }, [open, doc, reloadNonce, revokeActiveUrl]);
+  }, [active, doc, reloadNonce, revokeActiveUrl]);
+
+  if (!doc) return null;
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-y border-border py-2.5">
+        <span className="text-[12px] text-muted-foreground">
+          Private workspace PDF stream (private, no-store)
+        </span>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => onDownload(doc)}
+            aria-label={`Download ${doc.originalFilename} from preview`}
+          >
+            <Download className="size-3.5" /> Download PDF
+          </Button>
+          {preview.status === "ready" && (
+            <Button variant="ghost" size="sm" asChild>
+              <a
+                href={`/api/documents/${encodeURIComponent(doc.id)}/content`}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <ExternalLink className="size-3.5" /> Open in new tab
+              </a>
+            </Button>
+          )}
+        </div>
+      </div>
+
+      <div className="min-h-[320px] flex-1 overflow-auto">
+        {preview.status === "loading" && (
+          <div
+            role="status"
+            aria-live="polite"
+            className="flex h-[320px] flex-col items-center justify-center gap-2 rounded-sm border border-dashed border-border bg-surface px-6 text-center"
+          >
+            <RefreshCw className="size-5 animate-spin text-muted-foreground" />
+            <p className="text-[14px] font-medium">Loading private PDF…</p>
+            <p className="text-[12.5px] text-muted-foreground">
+              Verifying workspace access and streaming from private storage.
+            </p>
+          </div>
+        )}
+
+        {preview.status === "ready" && (
+          <iframe
+            title={`PDF preview for ${doc.originalFilename}`}
+            src={preview.blobUrl}
+            className={cn(
+              "h-[62vh] w-full rounded-sm border border-border bg-surface",
+              iframeClassName,
+            )}
+          />
+        )}
+
+        {preview.status === "error" && (
+          <div
+            role="alert"
+            className="flex min-h-[280px] flex-col items-center justify-center gap-3 rounded-sm border border-destructive/30 bg-destructive/5 px-6 py-8 text-center"
+          >
+            <AlertCircle className="size-6 text-destructive" strokeWidth={1.6} />
+            <div className="max-w-md space-y-1">
+              <p className="font-serif text-xl">PDF unavailable</p>
+              <p className="text-[13px] text-muted-foreground">{preview.message}</p>
+            </div>
+            <div className="mt-2 flex flex-wrap justify-center gap-2">
+              {preview.unauthorized ? (
+                <Button variant="ink" size="sm" asChild>
+                  <Link
+                    to="/login"
+                    search={{ verified: undefined, email: undefined, error: undefined }}
+                  >
+                    Sign in
+                  </Link>
+                </Button>
+              ) : (
+                <>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setReloadNonce((n) => n + 1)}
+                  >
+                    <RefreshCw className="size-3.5" /> Retry preview
+                  </Button>
+                  {onRefreshBatch && (
+                    <Button type="button" variant="ghost" size="sm" onClick={onRefreshBatch}>
+                      Refresh batch status
+                    </Button>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export function DocumentPreviewDialog({
+  document: doc,
+  open,
+  onOpenChange,
+  onDownload,
+  onRefreshBatch,
+  returnFocusTo,
+}: {
+  document: PersistedDocument | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onDownload: (doc: PersistedDocument) => void;
+  onRefreshBatch?: (() => void) | undefined;
+  returnFocusTo?: HTMLElement | null | undefined;
+}) {
+  const openerRef = useRef<HTMLElement | null>(null);
+
+  useLayoutEffect(() => {
+    if (open && typeof globalThis.document !== "undefined") {
+      if (returnFocusTo) {
+        openerRef.current = returnFocusTo;
+      } else if (
+        globalThis.document.activeElement instanceof HTMLElement &&
+        globalThis.document.activeElement !== globalThis.document.body
+      ) {
+        openerRef.current = globalThis.document.activeElement;
+      }
+    }
+  }, [open, returnFocusTo]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -187,108 +305,19 @@ export function DocumentPreviewDialog({
           </div>
         </DialogHeader>
 
-        {doc && (
-          <div className="flex flex-wrap items-center justify-between gap-2 border-y border-border py-2.5">
-            <span className="text-[12px] text-muted-foreground">
-              Private workspace PDF stream (private, no-store)
-            </span>
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => onDownload(doc)}
-                aria-label={`Download ${doc.originalFilename} from preview`}
-              >
-                <Download className="size-3.5" /> Download PDF
-              </Button>
-              {preview.status === "ready" && (
-                <Button variant="ghost" size="sm" asChild>
-                  <a
-                    href={`/api/documents/${encodeURIComponent(doc.id)}/content`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    <ExternalLink className="size-3.5" /> Open in new tab
-                  </a>
-                </Button>
-              )}
-            </div>
-          </div>
-        )}
-
-        <div className="min-h-[320px] flex-1 overflow-auto">
-          {preview.status === "loading" && (
-            <div
-              role="status"
-              aria-live="polite"
-              className="flex h-[320px] flex-col items-center justify-center gap-2 rounded-sm border border-dashed border-border bg-surface px-6 text-center"
-            >
-              <RefreshCw className="size-5 animate-spin text-muted-foreground" />
-              <p className="text-[14px] font-medium">Loading private PDF…</p>
-              <p className="text-[12.5px] text-muted-foreground">
-                Verifying workspace access and streaming from private storage.
-              </p>
-            </div>
-          )}
-
-          {preview.status === "ready" && doc && (
-            <iframe
-              title={`PDF preview for ${doc.originalFilename}`}
-              src={preview.blobUrl}
-              className="h-[62vh] w-full rounded-sm border border-border bg-surface"
-            />
-          )}
-
-          {preview.status === "error" && (
-            <div
-              role="alert"
-              className="flex min-h-[280px] flex-col items-center justify-center gap-3 rounded-sm border border-destructive/30 bg-destructive/5 px-6 py-8 text-center"
-            >
-              <AlertCircle className="size-6 text-destructive" strokeWidth={1.6} />
-              <div className="max-w-md space-y-1">
-                <p className="font-serif text-xl">PDF unavailable</p>
-                <p className="text-[13px] text-muted-foreground">{preview.message}</p>
-              </div>
-              <div className="mt-2 flex flex-wrap justify-center gap-2">
-                {preview.unauthorized ? (
-                  <Button variant="ink" size="sm" asChild>
-                    <Link
-                      to="/login"
-                      search={{ verified: undefined, email: undefined, error: undefined }}
-                    >
-                      Sign in
-                    </Link>
-                  </Button>
-                ) : (
-                  <>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setReloadNonce((n) => n + 1)}
-                    >
-                      <RefreshCw className="size-3.5" /> Retry preview
-                    </Button>
-                    {onRefreshBatch && (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => {
-                          onRefreshBatch();
-                          onOpenChange(false);
-                        }}
-                      >
-                        Refresh batch status
-                      </Button>
-                    )}
-                  </>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
+        <PrivatePdfPreviewPane
+          document={doc}
+          active={open}
+          onDownload={onDownload}
+          onRefreshBatch={
+            onRefreshBatch
+              ? () => {
+                  onRefreshBatch();
+                  onOpenChange(false);
+                }
+              : undefined
+          }
+        />
       </DialogContent>
     </Dialog>
   );

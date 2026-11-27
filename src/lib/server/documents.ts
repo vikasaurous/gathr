@@ -2,22 +2,34 @@ import "@tanstack/react-start/server-only";
 import {
   buildStorageKey,
   computeBatchFinalStatus,
+  computeReviewDocumentRequestHash,
   hasPdfSignature,
+  isDocumentReviewStatus,
   isSafeStorageKey,
   isUuid,
+  isValidDocumentReviewTransition,
   MAX_FILE_BYTES,
   normalizeMimeType,
   PDF_MIME_TYPE,
   PDF_SIGNATURE_BYTES,
   sanitizeDownloadFilename,
   toAsciiHeaderFilename,
+  type BatchIngestionStatus,
   type CancelUploadResponse,
   type DeleteDocumentResponse,
   type DocumentDetailResponse,
+  type DocumentListResponse,
+  type DocumentReviewEvent,
+  type DocumentReviewStatus,
+  type DocumentUploadStatus,
+  type EffectiveDocumentReviewState,
   type HeartbeatUploadResponse,
   type PersistedBatch,
   type PersistedDocument,
+  type ReviewDocumentResponse,
   type UploadDocumentResponse,
+  type WorkspaceDocumentListItem,
+  type WorkspaceDocumentReviewCounts,
 } from "@/lib/gathr/ingestion-types";
 import {
   B2ObjectNotFoundError,
@@ -255,7 +267,8 @@ export async function claimDocumentUploadAttempt(
          RETURNING
            d."id", d."workspace_id", d."batch_id", d."original_filename", d."mime_type",
            d."file_size_bytes", d."storage_key", d."active_attempt_id", d."lease_expires_at",
-           d."upload_started_at", d."status", d."review_status", d."page_count",
+           d."upload_started_at", d."status", d."review_status", d."review_version",
+           d."review_updated_at", d."page_count",
            d."error_message", d."uploaded_at", d."created_at", d."updated_at"
        ),
        orphan_outbox AS (
@@ -305,6 +318,8 @@ export async function claimDocumentUploadAttempt(
          c."upload_started_at",
          c."status",
          c."review_status",
+         c."review_version",
+         c."review_updated_at",
          c."page_count",
          c."error_message",
          c."uploaded_at",
@@ -611,7 +626,8 @@ export async function commitDocumentUploadAttempt(
          RETURNING
            d."id", d."workspace_id", d."batch_id", d."original_filename", d."mime_type",
            d."file_size_bytes", d."storage_key", d."active_attempt_id", d."lease_expires_at",
-           d."upload_started_at", d."status", d."review_status", d."page_count",
+           d."upload_started_at", d."status", d."review_status", d."review_version",
+           d."review_updated_at", d."page_count",
            d."error_message", d."uploaded_at", d."created_at", d."updated_at"
        ),
        expired_self AS (
@@ -667,6 +683,8 @@ export async function commitDocumentUploadAttempt(
          c."upload_started_at",
          c."status",
          c."review_status",
+         c."review_version",
+         c."review_updated_at",
          c."page_count",
          c."error_message",
          c."uploaded_at",
@@ -933,7 +951,8 @@ export async function cancelDocumentUploadAttempt(
          RETURNING
            d."id", d."workspace_id", d."batch_id", d."original_filename", d."mime_type",
            d."file_size_bytes", d."storage_key", d."active_attempt_id", d."lease_expires_at",
-           d."upload_started_at", d."status", d."review_status", d."page_count",
+           d."upload_started_at", d."status", d."review_status", d."review_version",
+           d."review_updated_at", d."page_count",
            d."error_message", d."uploaded_at", d."created_at", d."updated_at"
        ),
        outbox AS (
@@ -1609,6 +1628,528 @@ async function preparePdfDownloadStream(
   );
 }
 
+export class ReviewStateConflictError extends HttpError {
+  readonly currentDocument: PersistedDocument;
+
+  constructor(message: string, code: string, currentDocument: PersistedDocument) {
+    super(409, message, code);
+    this.name = "ReviewStateConflictError";
+    this.currentDocument = currentDocument;
+  }
+}
+
+async function fetchDocumentReviewEvents(
+  sql: Pick<SqlClient, "query">,
+  workspaceId: string,
+  documentId: string,
+): Promise<DocumentReviewEvent[]> {
+  const rows = await sql.query(
+    `SELECT
+       e."id",
+       e."document_id",
+       e."from_review_status",
+       e."to_review_status",
+       e."created_at",
+       COALESCE(NULLIF(btrim(u."name"), ''), 'Workspace owner') AS "actor_name"
+     FROM "document_review_events" e
+     LEFT JOIN "user" u ON u."id" = e."actor_user_id"
+     WHERE e."document_id" = $1::uuid AND e."workspace_id" = $2::uuid
+     ORDER BY e."created_at" DESC, e."id" DESC
+     LIMIT 50`,
+    [documentId, workspaceId],
+  );
+  if (!Array.isArray(rows)) return [];
+  return rows.map((row) => ({
+    id: String(row["id"]),
+    documentId: String(row["document_id"]),
+    fromReviewStatus:
+      row["from_review_status"] == null
+        ? null
+        : (String(row["from_review_status"]) as DocumentReviewStatus),
+    toReviewStatus: String(row["to_review_status"]) as DocumentReviewStatus,
+    actorName: String(row["actor_name"] ?? "Workspace owner"),
+    createdAt:
+      row["created_at"] instanceof Date
+        ? row["created_at"].toISOString()
+        : String(row["created_at"]),
+  }));
+}
+
+export interface ListWorkspaceDocumentsOptions {
+  status?: DocumentUploadStatus | undefined;
+  reviewStatus?: EffectiveDocumentReviewState | undefined;
+  batchId?: string | undefined;
+  query?: string | undefined;
+  limit?: number | undefined;
+  offset?: number | undefined;
+}
+
+const MAX_DOCUMENT_LIST_LIMIT = 200;
+
+export async function listWorkspaceDocuments(
+  sql: Pick<SqlClient, "query">,
+  workspaceId: string,
+  options?: ListWorkspaceDocumentsOptions,
+): Promise<DocumentListResponse> {
+  if (!isUuid(workspaceId)) {
+    throw new HttpError(400, "Invalid workspace identifier.", "INVALID_WORKSPACE_ID");
+  }
+  if (options?.batchId !== undefined && !isUuid(options.batchId)) {
+    throw new HttpError(400, "Invalid batch identifier.", "INVALID_BATCH_ID");
+  }
+
+  const rawLimit = options?.limit ?? 100;
+  const limit = Math.max(1, Math.min(MAX_DOCUMENT_LIST_LIMIT, Math.floor(rawLimit)));
+  const offset = Math.max(0, Math.floor(options?.offset ?? 0));
+  const uploadStatusFilter = options?.status ?? null;
+  const reviewFilter = options?.reviewStatus ?? null;
+  const batchIdFilter = options?.batchId ?? null;
+  const searchRaw = options?.query?.trim() ?? "";
+  const escapedSearch = searchRaw ? `%${searchRaw.replace(/[\\%_]/g, "\\$&")}%` : null;
+
+  try {
+    const [countRows, filteredCountRows, rows] = await Promise.all([
+      sql.query(
+        `SELECT
+           COUNT(*)::int AS "total",
+           COUNT(*) FILTER (WHERE "status" = 'uploaded')::int AS "uploaded",
+           COUNT(*) FILTER (WHERE "status" = 'uploaded' AND "review_status" IS NULL)::int AS "unreviewed",
+           COUNT(*) FILTER (WHERE "status" = 'uploaded' AND "review_status" = 'needs_review')::int AS "needs_review",
+           COUNT(*) FILTER (WHERE "status" = 'uploaded' AND "review_status" = 'verified')::int AS "verified",
+           COUNT(*) FILTER (WHERE "status" = 'uploaded' AND "review_status" = 'duplicate')::int AS "duplicate",
+           COUNT(*) FILTER (WHERE "status" = 'uploaded' AND "review_status" = 'rejected')::int AS "rejected",
+           COUNT(*) FILTER (WHERE "status" = 'uploaded' AND "review_status" = 'skipped')::int AS "skipped"
+         FROM "documents"
+         WHERE "workspace_id" = $1::uuid`,
+        [workspaceId],
+      ),
+      sql.query(
+        `SELECT COUNT(*)::int AS "filtered_total"
+         FROM "documents" d
+         INNER JOIN "batches" b
+           ON b."id" = d."batch_id" AND b."workspace_id" = d."workspace_id"
+         WHERE d."workspace_id" = $1::uuid
+           AND ($2::text IS NULL OR d."status" = $2::text)
+           AND (
+             $3::text IS NULL
+             OR ($3::text = 'unreviewed' AND d."status" = 'uploaded' AND d."review_status" IS NULL)
+             OR ($3::text <> 'unreviewed' AND d."review_status" = $3::text)
+           )
+           AND ($4::uuid IS NULL OR d."batch_id" = $4::uuid)
+           AND (
+             $5::text IS NULL
+             OR d."original_filename" ILIKE $5::text ESCAPE '\\'
+             OR d."id"::text ILIKE $5::text ESCAPE '\\'
+             OR b."name" ILIKE $5::text ESCAPE '\\'
+             OR b."id"::text ILIKE $5::text ESCAPE '\\'
+           )`,
+        [workspaceId, uploadStatusFilter, reviewFilter, batchIdFilter, escapedSearch],
+      ),
+      sql.query(
+        `SELECT
+           d."id", d."workspace_id", d."batch_id", d."original_filename", d."mime_type",
+           d."file_size_bytes", d."storage_key", d."active_attempt_id", d."lease_expires_at",
+           d."upload_started_at", d."status", d."review_status", d."review_version",
+           d."review_updated_at", d."page_count", d."error_message",
+           d."uploaded_at", d."created_at", d."updated_at",
+           b."name" AS "batch_name",
+           b."status" AS "batch_status",
+           b."finalized_at" AS "batch_finalized_at"
+         FROM "documents" d
+         INNER JOIN "batches" b
+           ON b."id" = d."batch_id" AND b."workspace_id" = d."workspace_id"
+         WHERE d."workspace_id" = $1::uuid
+           AND ($3::text IS NULL OR d."status" = $3::text)
+           AND (
+             $4::text IS NULL
+             OR ($4::text = 'unreviewed' AND d."status" = 'uploaded' AND d."review_status" IS NULL)
+             OR ($4::text <> 'unreviewed' AND d."review_status" = $4::text)
+           )
+           AND ($5::uuid IS NULL OR d."batch_id" = $5::uuid)
+           AND (
+             $6::text IS NULL
+             OR d."original_filename" ILIKE $6::text ESCAPE '\\'
+             OR d."id"::text ILIKE $6::text ESCAPE '\\'
+             OR b."name" ILIKE $6::text ESCAPE '\\'
+             OR b."id"::text ILIKE $6::text ESCAPE '\\'
+           )
+         ORDER BY COALESCE(d."uploaded_at", d."created_at") DESC, d."created_at" DESC, d."id" DESC
+         LIMIT $2::integer OFFSET $7::integer`,
+        [
+          workspaceId,
+          limit,
+          uploadStatusFilter,
+          reviewFilter,
+          batchIdFilter,
+          escapedSearch,
+          offset,
+        ],
+      ),
+    ]);
+
+    const cRow = countRows[0] ?? {};
+    const counts: WorkspaceDocumentReviewCounts = {
+      total: Number(cRow["total"] ?? 0),
+      uploaded: Number(cRow["uploaded"] ?? 0),
+      unreviewed: Number(cRow["unreviewed"] ?? 0),
+      needsReview: Number(cRow["needs_review"] ?? 0),
+      verified: Number(cRow["verified"] ?? 0),
+      duplicate: Number(cRow["duplicate"] ?? 0),
+      rejected: Number(cRow["rejected"] ?? 0),
+      skipped: Number(cRow["skipped"] ?? 0),
+    };
+
+    const documents: WorkspaceDocumentListItem[] = rows.map((row) => ({
+      ...toPublicDocument(mapDocumentRow(row)),
+      batchName: String(row["batch_name"]),
+      batchStatus: String(row["batch_status"]) as BatchIngestionStatus,
+      batchFinalizedAt:
+        row["batch_finalized_at"] == null
+          ? null
+          : row["batch_finalized_at"] instanceof Date
+            ? row["batch_finalized_at"].toISOString()
+            : String(row["batch_finalized_at"]),
+    }));
+
+    const filteredTotal = Number(filteredCountRows[0]?.["filtered_total"] ?? documents.length);
+    const hasMore = offset + documents.length < filteredTotal;
+
+    return { documents, counts, filteredTotal, hasMore };
+  } catch (error) {
+    rethrowDbError("listWorkspaceDocuments", error);
+  }
+}
+
+/**
+ * Atomically validates and records a human review/approval decision on an
+ * uploaded workspace document using lock order (`batches -> documents`),
+ * server transition matrix enforcement, optimistic concurrency (`review_version`
+ * / `expectedReviewStatus`), and `Idempotency-Key` replay protection.
+ */
+export async function transitionDocumentReviewStatus(
+  sql: Pick<SqlClient, "query">,
+  params: {
+    workspaceId: string;
+    documentId: string;
+    actorUserId: string;
+    reviewStatus: DocumentReviewStatus;
+    expectedReviewStatus?: DocumentReviewStatus | null | undefined;
+    expectedReviewVersion?: number | undefined;
+    idempotencyKey?: string | undefined;
+  },
+): Promise<ReviewDocumentResponse> {
+  const {
+    workspaceId,
+    documentId,
+    actorUserId,
+    reviewStatus,
+    expectedReviewStatus,
+    expectedReviewVersion,
+    idempotencyKey,
+  } = params;
+
+  if (!isUuid(workspaceId)) {
+    throw new HttpError(400, "Invalid workspace identifier.", "INVALID_WORKSPACE_ID");
+  }
+  if (!isUuid(documentId)) {
+    throw new HttpError(400, "Invalid document identifier.", "INVALID_DOCUMENT_ID");
+  }
+  if (!actorUserId.trim()) {
+    throw new HttpError(401, "Authentication required.", "UNAUTHORIZED");
+  }
+  if (!isDocumentReviewStatus(reviewStatus)) {
+    throw new HttpError(400, "Invalid review status.", "INVALID_REVIEW_STATUS");
+  }
+  if (
+    expectedReviewVersion !== undefined &&
+    (!Number.isSafeInteger(expectedReviewVersion) || expectedReviewVersion < 0)
+  ) {
+    throw new HttpError(400, "Invalid expected review version.", "INVALID_REVIEW_EXPECTATION");
+  }
+
+  const hasExpectedStatus = expectedReviewStatus !== undefined;
+  const expectedStatusValue = expectedReviewStatus ?? null;
+  const requestHash = idempotencyKey
+    ? await computeReviewDocumentRequestHash({
+        reviewStatus,
+        ...(hasExpectedStatus ? { expectedReviewStatus } : {}),
+        ...(expectedReviewVersion !== undefined ? { expectedReviewVersion } : {}),
+      })
+    : null;
+
+  try {
+    const rows = await sql.query(
+      `WITH batch_lock AS (
+         SELECT b."id", b."workspace_id", b."name", b."status", b."finalized_at", b."created_at", b."updated_at"
+         FROM "batches" b
+         INNER JOIN "documents" d
+           ON d."batch_id" = b."id" AND d."workspace_id" = b."workspace_id"
+         WHERE d."id" = $1::uuid AND d."workspace_id" = $2::uuid
+         FOR UPDATE OF b
+       ),
+       target AS (
+         SELECT
+           d."id", d."workspace_id", d."batch_id", d."original_filename", d."mime_type",
+           d."file_size_bytes", d."storage_key", d."active_attempt_id", d."lease_expires_at",
+           d."upload_started_at", d."status", d."review_status", d."review_version",
+           d."review_updated_at", d."page_count", d."error_message",
+           d."uploaded_at", d."created_at", d."updated_at",
+           bl."name" AS "batch_name",
+           bl."status" AS "batch_status",
+           bl."finalized_at" AS "batch_finalized_at",
+           bl."created_at" AS "batch_created_at",
+           bl."updated_at" AS "batch_updated_at"
+         FROM "documents" d
+         INNER JOIN batch_lock bl
+           ON bl."id" = d."batch_id" AND bl."workspace_id" = d."workspace_id"
+         WHERE d."id" = $1::uuid AND d."workspace_id" = $2::uuid
+         FOR UPDATE OF d
+       ),
+       existing_idem AS (
+         SELECT e."id", e."request_hash"
+         FROM "document_review_events" e
+         INNER JOIN target t ON t."id" = e."document_id"
+         WHERE $8::text IS NOT NULL
+           AND e."document_id" = t."id"
+           AND e."idempotency_key" = $8::text
+         LIMIT 1
+       ),
+       can_apply AS (
+         SELECT t."id", t."workspace_id", t."batch_id", t."review_status" AS "prev_review_status"
+         FROM target t
+         WHERE NOT EXISTS (SELECT 1 FROM existing_idem)
+           AND t."status" = 'uploaded'
+           AND ($5::integer IS NULL OR t."review_version" = $5::integer)
+           AND (
+             $6::boolean = false
+             OR ($7::text IS NULL AND t."review_status" IS NULL)
+             OR ($7::text IS NOT NULL AND t."review_status" = $7::text)
+           )
+           AND t."review_status" IS DISTINCT FROM $4::text
+           AND (
+             t."review_status" IS NULL
+             OR (t."review_status" = 'needs_review' AND $4::text IN ('verified', 'duplicate', 'rejected', 'skipped'))
+             OR (t."review_status" IN ('verified', 'duplicate', 'rejected', 'skipped') AND $4::text = 'needs_review')
+           )
+       ),
+       updated_doc AS (
+         UPDATE "documents" d
+         SET
+           "review_status" = $4::text,
+           "review_version" = d."review_version" + 1,
+           "review_updated_at" = clock_timestamp(),
+           "updated_at" = clock_timestamp()
+         FROM can_apply ca
+         WHERE d."id" = ca."id" AND d."workspace_id" = ca."workspace_id"
+         RETURNING
+           d."id", d."workspace_id", d."batch_id", d."original_filename", d."mime_type",
+           d."file_size_bytes", d."storage_key", d."active_attempt_id", d."lease_expires_at",
+           d."upload_started_at", d."status", d."review_status", d."review_version",
+           d."review_updated_at", d."page_count", d."error_message",
+           d."uploaded_at", d."created_at", d."updated_at"
+       ),
+       inserted_event AS (
+         INSERT INTO "document_review_events" (
+           "workspace_id", "batch_id", "document_id", "actor_user_id",
+           "from_review_status", "to_review_status", "idempotency_key", "request_hash"
+         )
+         SELECT
+           u."workspace_id",
+           u."batch_id",
+           u."id",
+           $3::text,
+           ca."prev_review_status",
+           $4::text,
+           $8::text,
+           $9::text
+         FROM updated_doc u
+         INNER JOIN can_apply ca ON ca."id" = u."id"
+         ON CONFLICT ("document_id", "idempotency_key") WHERE "idempotency_key" IS NOT NULL
+         DO NOTHING
+         RETURNING "id"
+       )
+       SELECT
+         t."status" AS "target_status",
+         t."review_status" AS "target_review_status",
+         t."review_version" AS "target_review_version",
+         t."batch_name",
+         t."batch_status",
+         t."batch_finalized_at",
+         t."batch_created_at",
+         t."batch_updated_at",
+         ei."id" AS "existing_idem_id",
+         ei."request_hash" AS "existing_idem_hash",
+         (SELECT count(*)::int FROM inserted_event) AS "inserted_event_count",
+         COALESCE(u."id", t."id") AS "id",
+         COALESCE(u."workspace_id", t."workspace_id") AS "workspace_id",
+         COALESCE(u."batch_id", t."batch_id") AS "batch_id",
+         COALESCE(u."original_filename", t."original_filename") AS "original_filename",
+         COALESCE(u."mime_type", t."mime_type") AS "mime_type",
+         COALESCE(u."file_size_bytes", t."file_size_bytes") AS "file_size_bytes",
+         COALESCE(u."storage_key", t."storage_key") AS "storage_key",
+         COALESCE(u."active_attempt_id", t."active_attempt_id") AS "active_attempt_id",
+         COALESCE(u."lease_expires_at", t."lease_expires_at") AS "lease_expires_at",
+         COALESCE(u."upload_started_at", t."upload_started_at") AS "upload_started_at",
+         COALESCE(u."status", t."status") AS "status",
+         CASE WHEN u."id" IS NOT NULL THEN u."review_status" ELSE t."review_status" END AS "review_status",
+         COALESCE(u."review_version", t."review_version") AS "review_version",
+         CASE WHEN u."id" IS NOT NULL THEN u."review_updated_at" ELSE t."review_updated_at" END AS "review_updated_at",
+         COALESCE(u."page_count", t."page_count") AS "page_count",
+         CASE WHEN u."id" IS NOT NULL THEN u."error_message" ELSE t."error_message" END AS "error_message",
+         COALESCE(u."uploaded_at", t."uploaded_at") AS "uploaded_at",
+         COALESCE(u."created_at", t."created_at") AS "created_at",
+         COALESCE(u."updated_at", t."updated_at") AS "updated_at",
+         u."id" AS "updated_id"
+       FROM target t
+       LEFT JOIN existing_idem ei ON true
+       LEFT JOIN updated_doc u ON u."id" = t."id"`,
+      [
+        documentId,
+        workspaceId,
+        actorUserId,
+        reviewStatus,
+        expectedReviewVersion ?? null,
+        hasExpectedStatus,
+        expectedStatusValue,
+        idempotencyKey ?? null,
+        requestHash,
+      ],
+    );
+
+    const row = rows[0];
+    if (!row) {
+      throw new HttpError(404, "Document not found.", "DOCUMENT_NOT_FOUND");
+    }
+
+    const doc = mapDocumentRow(row);
+    const batch = mapBatchRow({
+      id: row["batch_id"],
+      workspace_id: row["workspace_id"],
+      name: row["batch_name"],
+      status: row["batch_status"],
+      finalized_at: row["batch_finalized_at"],
+      created_at: row["batch_created_at"],
+      updated_at: row["batch_updated_at"],
+    });
+    const publicDoc = toPublicDocument(doc);
+    const publicBatch = toPublicBatch(batch);
+
+    if (row["existing_idem_id"]) {
+      if (String(row["existing_idem_hash"] ?? "") !== (requestHash ?? "")) {
+        throw new HttpError(
+          409,
+          "This Idempotency-Key has already been used for a different review request.",
+          "IDEMPOTENCY_CONFLICT",
+        );
+      }
+      const reviewEvents = await fetchDocumentReviewEvents(sql, workspaceId, documentId);
+      return {
+        document: publicDoc,
+        batch: publicBatch,
+        reviewEvents,
+        idempotentReplay: true,
+        alreadyInState: false,
+      };
+    }
+
+    if (!row["updated_id"]) {
+      if (doc.status !== "uploaded") {
+        logLifecycleEvent("info", {
+          operation: "review_document",
+          outcome: "rejected",
+          batchId: doc.batchId,
+          documentId: doc.id,
+          failureCategory: "not_uploaded",
+        });
+        throw new HttpError(
+          409,
+          "Document must finish uploading before a review decision can be recorded.",
+          "DOCUMENT_NOT_UPLOADED",
+        );
+      }
+
+      const prevStatus =
+        row["target_review_status"] == null
+          ? null
+          : (String(row["target_review_status"]) as DocumentReviewStatus);
+      const prevVersion = Number(row["target_review_version"] ?? 0);
+
+      const versionMismatch =
+        expectedReviewVersion !== undefined && prevVersion !== expectedReviewVersion;
+      const statusMismatch =
+        expectedReviewStatus !== undefined && prevStatus !== expectedReviewStatus;
+
+      if (versionMismatch || statusMismatch) {
+        logLifecycleEvent("info", {
+          operation: "review_document",
+          outcome: "rejected",
+          batchId: doc.batchId,
+          documentId: doc.id,
+          failureCategory: "conflict",
+        });
+        throw new ReviewStateConflictError(
+          "This document's review state changed in another session. Refresh to see the latest state.",
+          "REVIEW_STATE_CONFLICT",
+          publicDoc,
+        );
+      }
+
+      if (prevStatus === reviewStatus) {
+        const reviewEvents = await fetchDocumentReviewEvents(sql, workspaceId, documentId);
+        return {
+          document: publicDoc,
+          batch: publicBatch,
+          reviewEvents,
+          idempotentReplay: true,
+          alreadyInState: true,
+        };
+      }
+
+      if (!isValidDocumentReviewTransition(prevStatus, reviewStatus)) {
+        logLifecycleEvent("info", {
+          operation: "review_document",
+          outcome: "rejected",
+          batchId: doc.batchId,
+          documentId: doc.id,
+          failureCategory: "invalid_transition",
+        });
+        throw new ReviewStateConflictError(
+          "This review transition is not allowed. Return the document to review before choosing a new decision.",
+          "INVALID_REVIEW_TRANSITION",
+          publicDoc,
+        );
+      }
+
+      throw new ReviewStateConflictError(
+        "Review decision could not be recorded.",
+        "REVIEW_STATE_CONFLICT",
+        publicDoc,
+      );
+    }
+
+    const reviewEvents = await fetchDocumentReviewEvents(sql, workspaceId, documentId);
+    const prevLabel =
+      row["target_review_status"] == null ? "unreviewed" : String(row["target_review_status"]);
+    logLifecycleEvent("info", {
+      operation: "review_document",
+      outcome: "succeeded",
+      batchId: doc.batchId,
+      documentId: doc.id,
+      reason: `${prevLabel}->${reviewStatus}`,
+    });
+
+    return {
+      document: publicDoc,
+      batch: publicBatch,
+      reviewEvents,
+      idempotentReplay: false,
+      alreadyInState: false,
+    };
+  } catch (error) {
+    rethrowDbError("transitionDocumentReviewStatus", error);
+  }
+}
+
 /**
  * Retrieves workspace-scoped document metadata along with its owning batch.
  * Never exposes B2 credentials, raw storage keys, or unrestricted URLs, and
@@ -1631,7 +2172,8 @@ export async function getWorkspaceDocumentDetail(
       `SELECT
          d."id", d."workspace_id", d."batch_id", d."original_filename", d."mime_type",
          d."file_size_bytes", d."storage_key", d."active_attempt_id", d."lease_expires_at",
-         d."upload_started_at", d."status", d."review_status", d."page_count", d."error_message",
+         d."upload_started_at", d."status", d."review_status", d."review_version",
+         d."review_updated_at", d."page_count", d."error_message",
          d."uploaded_at", d."created_at", d."updated_at",
          b."name" AS "batch_name",
          b."status" AS "batch_status",
@@ -1661,10 +2203,12 @@ export async function getWorkspaceDocumentDetail(
       created_at: row["batch_created_at"],
       updated_at: row["batch_updated_at"],
     });
+    const reviewEvents = await fetchDocumentReviewEvents(sql, workspaceId, documentId);
 
     return {
       document: toPublicDocument(doc),
       batch: toPublicBatch(batch),
+      reviewEvents,
     };
   } catch (error) {
     rethrowDbError("getWorkspaceDocumentDetail", error);

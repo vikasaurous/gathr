@@ -58,6 +58,8 @@ export interface OwnedDocumentRow {
   status: DocumentUploadStatus;
   /** Business review state; null until the document has been uploaded. */
   reviewStatus: DocumentReviewStatus | null;
+  reviewVersion: number;
+  reviewUpdatedAt: string | null;
   pageCount: number | null;
   errorMessage: string | null;
   uploadedAt: string | null;
@@ -105,6 +107,8 @@ export function mapDocumentRow(row: Record<string, unknown>): OwnedDocumentRow {
     status: String(row["status"]) as DocumentUploadStatus,
     reviewStatus:
       row["review_status"] == null ? null : (String(row["review_status"]) as DocumentReviewStatus),
+    reviewVersion: row["review_version"] == null ? 0 : Math.max(0, Number(row["review_version"])),
+    reviewUpdatedAt: toNullableIsoString(row["review_updated_at"]),
     pageCount: row["page_count"] == null ? null : Number(row["page_count"]),
     errorMessage: typeof row["error_message"] === "string" ? row["error_message"] : null,
     uploadedAt: toNullableIsoString(row["uploaded_at"]),
@@ -333,7 +337,8 @@ export async function requireOwnedDocument(
   const rows = await sql.query(
     `SELECT d."id", d."workspace_id", d."batch_id", d."original_filename", d."mime_type",
             d."file_size_bytes", d."storage_key", d."active_attempt_id", d."lease_expires_at",
-            d."upload_started_at", d."status", d."review_status", d."page_count", d."error_message",
+            d."upload_started_at", d."status", d."review_status", d."review_version",
+            d."review_updated_at", d."page_count", d."error_message",
             d."uploaded_at", d."created_at", d."updated_at"
      FROM "documents" d
      INNER JOIN "batches" b

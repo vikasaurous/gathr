@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { formatBytes, formatDate } from "@/lib/gathr/format";
+import { setPendingReviewBadgeCount } from "@/lib/gathr/review-client";
 import type {
   BatchIngestionStatus,
   BatchListResponse,
@@ -91,7 +92,13 @@ export function Batches() {
       }
       const data = (await res.json()) as BatchListResponse;
       if (signal.aborted || seq !== loadSeqRef.current) return;
-      setBatches(Array.isArray(data.batches) ? data.batches : []);
+      const list = Array.isArray(data.batches) ? data.batches : [];
+      setBatches(list);
+      const awaiting = list.reduce(
+        (sum, item) => sum + (item.unreviewedCount ?? 0) + (item.needsReviewCount ?? 0),
+        0,
+      );
+      setPendingReviewBadgeCount(awaiting);
       setLoading(false);
     } catch (err) {
       if (
@@ -295,6 +302,15 @@ export function Batches() {
                     {b.pendingCount} pending
                     {b.failedCount > 0 ? ` · ${b.failedCount} failed` : ""}
                   </span>
+                  {b.uploadedCount > 0 && (
+                    <>
+                      <br />
+                      <span className="text-[11.5px] text-muted-foreground">
+                        {b.verifiedCount ?? 0} verified ·{" "}
+                        {(b.unreviewedCount ?? 0) + (b.needsReviewCount ?? 0)} awaiting review
+                      </span>
+                    </>
+                  )}
                 </span>
                 <span className="hidden md:flex md:flex-wrap md:items-center md:gap-1.5">
                   <IngestionBatchStatusPill status={b.status} pendingOnly={pendingOnly} />

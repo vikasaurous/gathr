@@ -28,6 +28,54 @@ export type DocumentUploadStatus = "pending_upload" | "uploading" | "uploaded" |
 export type DocumentReviewStatus =
   "needs_review" | "verified" | "duplicate" | "rejected" | "skipped";
 
+export const DOCUMENT_REVIEW_STATUSES: readonly DocumentReviewStatus[] = [
+  "needs_review",
+  "verified",
+  "duplicate",
+  "rejected",
+  "skipped",
+] as const;
+
+export type EffectiveDocumentReviewState = DocumentReviewStatus | "unreviewed";
+
+export type ReviewStatusTone = "neutral" | "warning" | "success" | "error";
+
+export const DOCUMENT_REVIEW_STATUS_META: Record<
+  EffectiveDocumentReviewState,
+  { label: string; tone: ReviewStatusTone }
+> = {
+  unreviewed: { label: "Unreviewed", tone: "neutral" },
+  needs_review: { label: "Needs review", tone: "warning" },
+  verified: { label: "Verified", tone: "success" },
+  duplicate: { label: "Duplicate", tone: "error" },
+  rejected: { label: "Rejected", tone: "error" },
+  skipped: { label: "Skipped", tone: "neutral" },
+};
+
+export function isDocumentReviewStatus(value: unknown): value is DocumentReviewStatus {
+  return (
+    typeof value === "string" && (DOCUMENT_REVIEW_STATUSES as readonly string[]).includes(value)
+  );
+}
+
+export function formatReviewStatusLabel(
+  status: DocumentReviewStatus | string | null | undefined,
+): string {
+  if (status == null || status === "" || status === "unreviewed") {
+    return DOCUMENT_REVIEW_STATUS_META.unreviewed.label;
+  }
+  if (isDocumentReviewStatus(status)) {
+    return DOCUMENT_REVIEW_STATUS_META[status].label;
+  }
+  return status
+    .split("_")
+    .filter(Boolean)
+    .map((word, idx) =>
+      idx === 0 ? word.charAt(0).toUpperCase() + word.slice(1).toLowerCase() : word.toLowerCase(),
+    )
+    .join(" ");
+}
+
 export interface WorkspaceSummary {
   id: string;
   name: string;
@@ -48,6 +96,12 @@ export interface PersistedBatchSummary extends PersistedBatch {
   uploadedCount: number;
   failedCount: number;
   totalSizeBytes: number;
+  unreviewedCount?: number | undefined;
+  needsReviewCount?: number | undefined;
+  verifiedCount?: number | undefined;
+  duplicateCount?: number | undefined;
+  rejectedCount?: number | undefined;
+  skippedCount?: number | undefined;
 }
 
 export interface PersistedDocument {
@@ -60,12 +114,61 @@ export interface PersistedDocument {
   status: DocumentUploadStatus;
   /** Business review/approval state — null until document is uploaded. */
   reviewStatus: DocumentReviewStatus | null;
+  reviewVersion?: number | undefined;
+  reviewUpdatedAt?: string | null | undefined;
   pageCount: number | null;
   errorMessage: string | null;
   uploadedAt: string | null;
   createdAt: string;
   activeAttemptId?: string | null | undefined;
   leaseExpiresAt?: string | null | undefined;
+}
+
+export interface DocumentReviewEvent {
+  id: string;
+  documentId: string;
+  fromReviewStatus: DocumentReviewStatus | null;
+  toReviewStatus: DocumentReviewStatus;
+  actorName: string;
+  createdAt: string;
+}
+
+export interface WorkspaceDocumentListItem extends PersistedDocument {
+  batchName: string;
+  batchStatus: BatchIngestionStatus;
+  batchFinalizedAt: string | null;
+}
+
+export interface WorkspaceDocumentReviewCounts {
+  total: number;
+  uploaded: number;
+  unreviewed: number;
+  needsReview: number;
+  verified: number;
+  duplicate: number;
+  rejected: number;
+  skipped: number;
+}
+
+export interface DocumentListResponse {
+  documents: WorkspaceDocumentListItem[];
+  counts: WorkspaceDocumentReviewCounts;
+  filteredTotal?: number | undefined;
+  hasMore?: boolean | undefined;
+}
+
+export interface ReviewDocumentRequest {
+  reviewStatus: DocumentReviewStatus;
+  expectedReviewStatus?: DocumentReviewStatus | null | undefined;
+  expectedReviewVersion?: number | undefined;
+}
+
+export interface ReviewDocumentResponse {
+  document: PersistedDocument;
+  batch: PersistedBatch;
+  reviewEvents: DocumentReviewEvent[];
+  idempotentReplay?: boolean | undefined;
+  alreadyInState?: boolean | undefined;
 }
 
 export interface CreateBatchRequestFile {
@@ -137,6 +240,7 @@ export interface DeleteBatchResponse {
 export interface DocumentDetailResponse {
   document: PersistedDocument;
   batch: PersistedBatch;
+  reviewEvents?: DocumentReviewEvent[] | undefined;
 }
 
 export interface DeleteDocumentResponse {
@@ -597,4 +701,128 @@ export function computeBatchFinalStatus(
   if (totalCount > 0 && uploadedCount === totalCount) return "uploaded";
   if (uploadedCount > 0) return "partial";
   return "failed";
+}
+
+/**
+ * Canonical business review state transitions for uploaded documents.
+ * Once a decision (`verified`, `duplicate`, `rejected`, `skipped`) is recorded,
+ * changing to a different decision requires reopening to `needs_review` first.
+ * Same-state submissions are handled idempotently on the server.
+ */
+export const ALLOWED_DOCUMENT_REVIEW_TRANSITIONS: Record<
+  EffectiveDocumentReviewState,
+  readonly DocumentReviewStatus[]
+> = {
+  unreviewed: ["needs_review", "verified", "duplicate", "rejected", "skipped"],
+  needs_review: ["verified", "duplicate", "rejected", "skipped"],
+  verified: ["needs_review"],
+  duplicate: ["needs_review"],
+  rejected: ["needs_review"],
+  skipped: ["needs_review"],
+};
+
+export function isValidDocumentReviewTransition(
+  from: DocumentReviewStatus | null,
+  to: DocumentReviewStatus,
+): boolean {
+  const key: EffectiveDocumentReviewState = from ?? "unreviewed";
+  return ALLOWED_DOCUMENT_REVIEW_TRANSITIONS[key].includes(to);
+}
+
+export function getAvailableReviewActions(
+  uploadStatus: DocumentUploadStatus,
+  reviewStatus: DocumentReviewStatus | null,
+): readonly DocumentReviewStatus[] {
+  if (uploadStatus !== "uploaded") return [];
+  const key: EffectiveDocumentReviewState = reviewStatus ?? "unreviewed";
+  return ALLOWED_DOCUMENT_REVIEW_TRANSITIONS[key];
+}
+
+export class ReviewValidationError extends Error {
+  readonly code: string;
+
+  constructor(message: string, code = "INVALID_REVIEW_REQUEST") {
+    super(message);
+    this.name = "ReviewValidationError";
+    this.code = code;
+  }
+}
+
+export function validateReviewDocumentPayload(data: unknown): ReviewDocumentRequest {
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    throw new ReviewValidationError("Invalid request body. Expected a JSON object.");
+  }
+
+  const allowedKeys = new Set(["reviewStatus", "expectedReviewStatus", "expectedReviewVersion"]);
+  for (const key of Object.keys(data)) {
+    if (!allowedKeys.has(key)) {
+      throw new ReviewValidationError(
+        `Unexpected field in review request: "${key}".`,
+        "UNEXPECTED_FIELD",
+      );
+    }
+  }
+
+  const record = data as {
+    reviewStatus?: unknown;
+    expectedReviewStatus?: unknown;
+    expectedReviewVersion?: unknown;
+  };
+
+  if (!isDocumentReviewStatus(record.reviewStatus)) {
+    throw new ReviewValidationError(
+      "reviewStatus must be one of: needs_review, verified, duplicate, rejected, skipped.",
+      "INVALID_REVIEW_STATUS",
+    );
+  }
+
+  let expectedReviewStatus: DocumentReviewStatus | null | undefined = undefined;
+  if (record.expectedReviewStatus !== undefined) {
+    if (
+      record.expectedReviewStatus !== null &&
+      !isDocumentReviewStatus(record.expectedReviewStatus)
+    ) {
+      throw new ReviewValidationError(
+        "expectedReviewStatus must be null or a valid review status.",
+        "INVALID_REVIEW_EXPECTATION",
+      );
+    }
+    expectedReviewStatus = record.expectedReviewStatus;
+  }
+
+  let expectedReviewVersion: number | undefined = undefined;
+  if (record.expectedReviewVersion !== undefined) {
+    if (
+      typeof record.expectedReviewVersion !== "number" ||
+      !Number.isSafeInteger(record.expectedReviewVersion) ||
+      record.expectedReviewVersion < 0
+    ) {
+      throw new ReviewValidationError(
+        "expectedReviewVersion must be a non-negative integer.",
+        "INVALID_REVIEW_EXPECTATION",
+      );
+    }
+    expectedReviewVersion = record.expectedReviewVersion;
+  }
+
+  return {
+    reviewStatus: record.reviewStatus,
+    ...(expectedReviewStatus !== undefined ? { expectedReviewStatus } : {}),
+    ...(expectedReviewVersion !== undefined ? { expectedReviewVersion } : {}),
+  };
+}
+
+export async function computeReviewDocumentRequestHash(
+  payload: ReviewDocumentRequest,
+): Promise<string> {
+  const canonical = JSON.stringify({
+    reviewStatus: payload.reviewStatus,
+    expectedReviewStatus:
+      payload.expectedReviewStatus === undefined ? "__omitted__" : payload.expectedReviewStatus,
+    expectedReviewVersion:
+      payload.expectedReviewVersion === undefined ? "__omitted__" : payload.expectedReviewVersion,
+  });
+  const encoded = new TextEncoder().encode(canonical);
+  const digest = await globalThis.crypto.subtle.digest("SHA-256", encoded);
+  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
 }

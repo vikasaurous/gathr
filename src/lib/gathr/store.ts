@@ -4,6 +4,7 @@
  */
 import { useSyncExternalStore } from "react";
 import { buildDemoState } from "./demo-data";
+import { setPendingReviewBadgeCount } from "./review-client";
 import type {
   Batch,
   BatchStatus,
@@ -261,6 +262,7 @@ export const actions = {
    */
   bindUser(userId: string) {
     if (boundUserId !== null && boundUserId !== userId) {
+      setPendingReviewBadgeCount(null);
       set(() => initial());
     }
     boundUserId = userId;
@@ -268,6 +270,7 @@ export const actions = {
   /** Clears all workspace state and the user binding (call on sign-out). */
   release() {
     boundUserId = null;
+    setPendingReviewBadgeCount(null);
     set(() => initial());
   },
 };

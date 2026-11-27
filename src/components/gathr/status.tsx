@@ -1,5 +1,11 @@
 import { cn } from "@/lib/utils";
-import type { BatchIngestionStatus, DocumentUploadStatus } from "@/lib/gathr/ingestion-types";
+import {
+  DOCUMENT_REVIEW_STATUS_META,
+  isDocumentReviewStatus,
+  type BatchIngestionStatus,
+  type DocumentReviewStatus,
+  type DocumentUploadStatus,
+} from "@/lib/gathr/ingestion-types";
 import type { BatchStatus, FieldSource, InvoiceStatus } from "@/lib/gathr/types";
 
 const TONE = {
@@ -80,14 +86,20 @@ export function DocumentUploadStatusPill({ status }: { status: DocumentUploadSta
   );
 }
 
-export function InvoiceStatusPill({ status }: { status: InvoiceStatus }) {
-  const m = {
-    needs_review: ["warning", "Needs review"],
-    verified: ["success", "Verified"],
-    duplicate: ["error", "Duplicate"],
-    skipped: ["neutral", "Skipped"],
-  } as const;
-  return <Pill tone={m[status][0]}>{m[status][1]}</Pill>;
+export function DocumentReviewStatusPill({
+  status,
+}: {
+  status: DocumentReviewStatus | null | undefined;
+}) {
+  const key = status && isDocumentReviewStatus(status) ? status : "unreviewed";
+  const meta = DOCUMENT_REVIEW_STATUS_META[key];
+  return <Pill tone={meta.tone}>{meta.label}</Pill>;
+}
+
+export function InvoiceStatusPill({ status }: { status: InvoiceStatus | DocumentReviewStatus }) {
+  const key = isDocumentReviewStatus(status) ? status : "needs_review";
+  const meta = DOCUMENT_REVIEW_STATUS_META[key];
+  return <Pill tone={meta.tone}>{meta.label}</Pill>;
 }
 
 export function SourceTag({

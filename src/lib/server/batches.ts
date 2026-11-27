@@ -49,6 +49,8 @@ export function toPublicDocument(row: OwnedDocumentRow): PersistedDocument {
     fileSizeBytes: row.fileSizeBytes,
     status: row.status,
     reviewStatus: row.reviewStatus,
+    reviewVersion: row.reviewVersion,
+    reviewUpdatedAt: row.reviewUpdatedAt,
     pageCount: row.pageCount,
     errorMessage: row.errorMessage,
     uploadedAt: row.uploadedAt,
@@ -114,6 +116,8 @@ function mapInsertedJoinRow(row: Record<string, unknown>): {
     upload_started_at: null,
     status: row["doc_status"],
     review_status: row["review_status"],
+    review_version: row["review_version"] ?? 0,
+    review_updated_at: row["review_updated_at"] ?? null,
     page_count: row["page_count"],
     error_message: row["error_message"],
     uploaded_at: row["uploaded_at"],
@@ -132,7 +136,8 @@ async function fetchBatchDocuments(
   const rows = await sql.query(
     `SELECT "id", "workspace_id", "batch_id", "original_filename", "mime_type",
             "file_size_bytes", "storage_key", "active_attempt_id", "lease_expires_at",
-            "upload_started_at", "status", "review_status", "page_count", "error_message",
+            "upload_started_at", "status", "review_status", "review_version",
+            "review_updated_at", "page_count", "error_message",
             "uploaded_at", "created_at", "updated_at"
      FROM "documents"
      WHERE "batch_id" = $1::uuid AND "workspace_id" = $2::uuid
@@ -365,6 +370,12 @@ export async function listWorkspaceBatches(
              COUNT(d."id") FILTER (WHERE d."status" = 'pending_upload')::int AS "pending_count",
              COUNT(d."id") FILTER (WHERE d."status" = 'uploaded')::int AS "uploaded_count",
              COUNT(d."id") FILTER (WHERE d."status" = 'failed')::int AS "failed_count",
+             COUNT(d."id") FILTER (WHERE d."status" = 'uploaded' AND d."review_status" IS NULL)::int AS "unreviewed_count",
+             COUNT(d."id") FILTER (WHERE d."status" = 'uploaded' AND d."review_status" = 'needs_review')::int AS "needs_review_count",
+             COUNT(d."id") FILTER (WHERE d."status" = 'uploaded' AND d."review_status" = 'verified')::int AS "verified_count",
+             COUNT(d."id") FILTER (WHERE d."status" = 'uploaded' AND d."review_status" = 'duplicate')::int AS "duplicate_count",
+             COUNT(d."id") FILTER (WHERE d."status" = 'uploaded' AND d."review_status" = 'rejected')::int AS "rejected_count",
+             COUNT(d."id") FILTER (WHERE d."status" = 'uploaded' AND d."review_status" = 'skipped')::int AS "skipped_count",
              COALESCE(SUM(d."file_size_bytes"), 0)::bigint AS "total_size_bytes"
            FROM "batches" b
            LEFT JOIN "documents" d
@@ -390,6 +401,12 @@ export async function listWorkspaceBatches(
              COUNT(d."id") FILTER (WHERE d."status" = 'pending_upload')::int AS "pending_count",
              COUNT(d."id") FILTER (WHERE d."status" = 'uploaded')::int AS "uploaded_count",
              COUNT(d."id") FILTER (WHERE d."status" = 'failed')::int AS "failed_count",
+             COUNT(d."id") FILTER (WHERE d."status" = 'uploaded' AND d."review_status" IS NULL)::int AS "unreviewed_count",
+             COUNT(d."id") FILTER (WHERE d."status" = 'uploaded' AND d."review_status" = 'needs_review')::int AS "needs_review_count",
+             COUNT(d."id") FILTER (WHERE d."status" = 'uploaded' AND d."review_status" = 'verified')::int AS "verified_count",
+             COUNT(d."id") FILTER (WHERE d."status" = 'uploaded' AND d."review_status" = 'duplicate')::int AS "duplicate_count",
+             COUNT(d."id") FILTER (WHERE d."status" = 'uploaded' AND d."review_status" = 'rejected')::int AS "rejected_count",
+             COUNT(d."id") FILTER (WHERE d."status" = 'uploaded' AND d."review_status" = 'skipped')::int AS "skipped_count",
              COALESCE(SUM(d."file_size_bytes"), 0)::bigint AS "total_size_bytes"
            FROM "batches" b
            LEFT JOIN "documents" d
@@ -408,6 +425,12 @@ export async function listWorkspaceBatches(
       uploadedCount: Number(row["uploaded_count"] ?? 0),
       failedCount: Number(row["failed_count"] ?? 0),
       totalSizeBytes: Number(row["total_size_bytes"] ?? 0),
+      unreviewedCount: Number(row["unreviewed_count"] ?? 0),
+      needsReviewCount: Number(row["needs_review_count"] ?? 0),
+      verifiedCount: Number(row["verified_count"] ?? 0),
+      duplicateCount: Number(row["duplicate_count"] ?? 0),
+      rejectedCount: Number(row["rejected_count"] ?? 0),
+      skippedCount: Number(row["skipped_count"] ?? 0),
     }));
   } catch (error) {
     rethrowStorageError("listWorkspaceBatches", error);
