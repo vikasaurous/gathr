@@ -38,6 +38,7 @@ const FORBIDDEN = [
   "streamOwnedDocumentContent",
   "getWorkspaceDocumentDetail",
   "deleteDocumentInWorkspace",
+  "exportWorkspaceDocuments",
   "preparePdfDownloadStream",
   "listWorkspaceDocuments",
   "transitionDocumentReviewStatus",

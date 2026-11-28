@@ -21,6 +21,7 @@ import { toast } from "sonner";
 import { ConfirmDialog, EmptyState, FilterTabs } from "@/components/gathr/common";
 import { DocumentPreviewDialog } from "@/components/gathr/document-preview-dialog";
 import { PersistedDocumentReviewDialog } from "@/components/gathr/persisted-document-review-dialog";
+import { PersistedExportDialog } from "@/components/gathr/persisted-export-dialog";
 import {
   DocumentReviewStatusPill,
   DocumentUploadStatusPill,
@@ -46,7 +47,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { downloadCsv, persistedDocumentsToCsv } from "@/lib/gathr/export";
 import { formatBytes, formatDate } from "@/lib/gathr/format";
 import {
   checkPdfFileMetadata,
@@ -680,26 +680,6 @@ export function PersistedBatchView({
     return true;
   });
 
-  function handleExportBatchCsv() {
-    if (documents.length === 0) return;
-    const csv = persistedDocumentsToCsv(
-      documents.map((doc) => ({
-        ...doc,
-        batchName: batch.name,
-      })),
-    );
-    const slug =
-      batch.name
-        .replace(/\W+/g, "-")
-        .toLowerCase()
-        .replace(/^-+|-+$/g, "") || "batch";
-    const datePart = new Date().toISOString().slice(0, 10);
-    downloadCsv(`gathr_${slug}_${datePart}.csv`, csv);
-    toast.success(
-      `Exported ${documents.length} document record${documents.length === 1 ? "" : "s"}`,
-    );
-  }
-
   const docFilterOptions: { value: DocFilter; label: string; count: number }[] = (
     ["all", "uploaded", "uploading", "pending_upload", "failed"] as DocFilter[]
   ).map((value) => ({
@@ -756,15 +736,19 @@ export function PersistedBatchView({
             {isRefreshing ? "Refreshing…" : "Refresh"}
           </Button>
           {documents.length > 0 && (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={handleExportBatchCsv}
-              aria-label="Export batch CSV"
-            >
-              <Download className="size-3.5" /> Export CSV
-            </Button>
+            <PersistedExportDialog
+              scope="batch"
+              batchId={batch.id}
+              label={batch.name}
+              totalCount={documents.length}
+              defaultQuery={docQuery}
+              defaultUploadStatus={docFilter !== "all" ? docFilter : undefined}
+              trigger={
+                <Button type="button" variant="outline" size="sm" aria-label="Export batch">
+                  <Download className="size-3.5" /> Export
+                </Button>
+              }
+            />
           )}
           {!isFinalized && (
             <Button

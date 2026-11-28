@@ -14,11 +14,11 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { ConfirmDialog, EmptyState, FilterTabs, PageHeader } from "@/components/gathr/common";
+import { PersistedExportDialog } from "@/components/gathr/persisted-export-dialog";
 import { DocumentReviewStatusPill, DocumentUploadStatusPill } from "@/components/gathr/status";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { downloadCsv, persistedDocumentsToCsv } from "@/lib/gathr/export";
 import { formatBytes, formatDate } from "@/lib/gathr/format";
 import {
   DOCUMENT_REVIEW_STATUSES,
@@ -507,14 +507,6 @@ export function Invoices() {
     });
   }
 
-  function handleExportCsv() {
-    if (rows.length === 0) return;
-    const csv = persistedDocumentsToCsv(rows);
-    const datePart = new Date().toISOString().slice(0, 10);
-    downloadCsv(`gathr_documents_${datePart}.csv`, csv);
-    toast.success(`Exported ${rows.length} document record${rows.length === 1 ? "" : "s"}`);
-  }
-
   const hasFilters = Boolean(q.trim() || batchFilter !== "all" || reviewFilter !== "all");
   const openActions = openDoc
     ? getAvailableReviewActions(openDoc.status, openDoc.reviewStatus)
@@ -536,15 +528,24 @@ export function Invoices() {
             >
               <RefreshCw className={`size-4 ${loading ? "animate-spin" : ""}`} /> Refresh
             </Button>
-            <Button
-              type="button"
-              variant="outline"
-              disabled={rows.length === 0}
-              onClick={handleExportCsv}
-              aria-label="Export documents CSV"
-            >
-              <Download className="size-4" /> Export CSV
-            </Button>
+            <PersistedExportDialog
+              scope="workspace"
+              batchId={batchFilter !== "all" ? batchFilter : undefined}
+              label="Workspace documents"
+              totalCount={counts.total}
+              disabled={rows.length === 0 && counts.total === 0}
+              defaultQuery={q}
+              trigger={
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={rows.length === 0 && counts.total === 0}
+                  aria-label="Export documents"
+                >
+                  <Download className="size-4" /> Export
+                </Button>
+              }
+            />
           </div>
         }
       >

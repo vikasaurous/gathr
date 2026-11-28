@@ -24,6 +24,7 @@ import { Route as TermsRouteImport } from './routes/terms'
 import { Route as VerifyEmailRouteImport } from './routes/verify-email'
 import { Route as ApiBatchesRouteImport } from './routes/api.batches'
 import { Route as ApiDocumentsRouteImport } from './routes/api.documents'
+import { Route as ApiExportsRouteImport } from './routes/api.exports'
 import { Route as ApiWorkspaceRouteImport } from './routes/api.workspace'
 import { Route as AppIndexRouteImport } from './routes/app.index'
 import { Route as AppInvoicesRouteImport } from './routes/app.invoices'
@@ -114,6 +115,11 @@ const ApiBatchesRoute = ApiBatchesRouteImport.update({
 const ApiDocumentsRoute = ApiDocumentsRouteImport.update({
   id: '/api/documents',
   path: '/api/documents',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiExportsRoute = ApiExportsRouteImport.update({
+  id: '/api/exports',
+  path: '/api/exports',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiWorkspaceRoute = ApiWorkspaceRouteImport.update({
@@ -213,6 +219,7 @@ export interface FileRoutesByFullPath {
   '/verify-email': typeof VerifyEmailRoute
   '/api/batches': typeof ApiBatchesRouteWithChildren
   '/api/documents': typeof ApiDocumentsRouteWithChildren
+  '/api/exports': typeof ApiExportsRoute
   '/api/workspace': typeof ApiWorkspaceRoute
   '/app/invoices': typeof AppInvoicesRoute
   '/app/new': typeof AppNewRoute
@@ -245,6 +252,7 @@ export interface FileRoutesByTo {
   '/verify-email': typeof VerifyEmailRoute
   '/api/batches': typeof ApiBatchesRouteWithChildren
   '/api/documents': typeof ApiDocumentsRouteWithChildren
+  '/api/exports': typeof ApiExportsRoute
   '/api/workspace': typeof ApiWorkspaceRoute
   '/app/invoices': typeof AppInvoicesRoute
   '/app/new': typeof AppNewRoute
@@ -279,6 +287,7 @@ export interface FileRoutesById {
   '/verify-email': typeof VerifyEmailRoute
   '/api/batches': typeof ApiBatchesRouteWithChildren
   '/api/documents': typeof ApiDocumentsRouteWithChildren
+  '/api/exports': typeof ApiExportsRoute
   '/api/workspace': typeof ApiWorkspaceRoute
   '/app/invoices': typeof AppInvoicesRoute
   '/app/new': typeof AppNewRoute
@@ -314,6 +323,7 @@ export interface FileRouteTypes {
     | '/verify-email'
     | '/api/batches'
     | '/api/documents'
+    | '/api/exports'
     | '/api/workspace'
     | '/app/invoices'
     | '/app/new'
@@ -346,6 +356,7 @@ export interface FileRouteTypes {
     | '/verify-email'
     | '/api/batches'
     | '/api/documents'
+    | '/api/exports'
     | '/api/workspace'
     | '/app/invoices'
     | '/app/new'
@@ -379,6 +390,7 @@ export interface FileRouteTypes {
     | '/verify-email'
     | '/api/batches'
     | '/api/documents'
+    | '/api/exports'
     | '/api/workspace'
     | '/app/invoices'
     | '/app/new'
@@ -413,6 +425,7 @@ export interface RootRouteChildren {
   VerifyEmailRoute: typeof VerifyEmailRoute
   ApiBatchesRoute: typeof ApiBatchesRouteWithChildren
   ApiDocumentsRoute: typeof ApiDocumentsRouteWithChildren
+  ApiExportsRoute: typeof ApiExportsRoute
   ApiWorkspaceRoute: typeof ApiWorkspaceRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
 }
@@ -522,6 +535,13 @@ declare module '@tanstack/react-router' {
       path: '/api/documents'
       fullPath: '/api/documents'
       preLoaderRoute: typeof ApiDocumentsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/exports': {
+      id: '/api/exports'
+      path: '/api/exports'
+      fullPath: '/api/exports'
+      preLoaderRoute: typeof ApiExportsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/workspace': {
@@ -731,6 +751,7 @@ const rootRouteChildren: RootRouteChildren = {
   VerifyEmailRoute: VerifyEmailRoute,
   ApiBatchesRoute: ApiBatchesRouteWithChildren,
   ApiDocumentsRoute: ApiDocumentsRouteWithChildren,
+  ApiExportsRoute: ApiExportsRoute,
   ApiWorkspaceRoute: ApiWorkspaceRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
 }
