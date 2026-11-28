@@ -155,6 +155,17 @@ describe("Phase 7 — Truthful review UI, concurrency conflict recovery, and lab
               resolveApprove = resFn;
             });
           }
+          if (url.endsWith("/api/exports")) {
+            return new Response("id,filename\n1,persisted-bill.pdf", {
+              status: 200,
+              headers: {
+                "Content-Type": "text/csv; charset=utf-8",
+                "Content-Disposition": 'attachment; filename="gathr_documents.csv"',
+                "X-Gathr-Export-Status": "complete",
+                "X-Gathr-Export-Included-Count": "2",
+              },
+            });
+          }
           return new Response("{}", { status: 404 });
         }),
       );
@@ -292,6 +303,17 @@ describe("Phase 7 — Truthful review UI, concurrency conflict recovery, and lab
             { status: 200, headers: { "Content-Type": "application/json" } },
           );
         }
+        if (url.endsWith("/api/exports")) {
+          return new Response("id,filename\n1,persisted-bill.pdf", {
+            status: 200,
+            headers: {
+              "Content-Type": "text/csv; charset=utf-8",
+              "Content-Disposition": 'attachment; filename="gathr_documents.csv"',
+              "X-Gathr-Export-Status": "complete",
+              "X-Gathr-Export-Included-Count": "2",
+            },
+          });
+        }
         return new Response("{}", { status: 404 });
       }),
     );
@@ -399,6 +421,17 @@ describe("Phase 7 — Truthful review UI, concurrency conflict recovery, and lab
             { status: 200, headers: { "Content-Type": "application/json" } },
           );
         }
+        if (url.endsWith("/api/exports")) {
+          return new Response("id,filename\n1,persisted-bill.pdf", {
+            status: 200,
+            headers: {
+              "Content-Type": "text/csv; charset=utf-8",
+              "Content-Disposition": 'attachment; filename="gathr_documents.csv"',
+              "X-Gathr-Export-Status": "complete",
+              "X-Gathr-Export-Included-Count": "2",
+            },
+          });
+        }
         return new Response("{}", { status: 404 });
       }),
     );
@@ -415,8 +448,9 @@ describe("Phase 7 — Truthful review UI, concurrency conflict recovery, and lab
     expect(screen.queryByText(/GSTIN/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/Northfield Stationers/i)).not.toBeInTheDocument();
 
-    // CSV export triggers cleanly
-    fireEvent.click(screen.getByRole("button", { name: "Export documents CSV" }));
+    // CSV export triggers cleanly via PersistedExportDialog
+    fireEvent.click(screen.getByRole("button", { name: "Export documents" }));
+    fireEvent.click(screen.getByRole("button", { name: /download csv/i }));
     await waitFor(() => {
       expect(anchorSpy).toHaveBeenCalledTimes(1);
     });
@@ -508,6 +542,17 @@ describe("Phase 7 — Truthful review UI, concurrency conflict recovery, and lab
             { status: 200, headers: { "Content-Type": "application/json" } },
           );
         }
+        if (url.endsWith("/api/exports")) {
+          return new Response("id,filename\n1,persisted-bill.pdf", {
+            status: 200,
+            headers: {
+              "Content-Type": "text/csv; charset=utf-8",
+              "Content-Disposition": 'attachment; filename="gathr_documents.csv"',
+              "X-Gathr-Export-Status": "complete",
+              "X-Gathr-Export-Included-Count": "2",
+            },
+          });
+        }
         return new Response("{}", { status: 404 });
       }),
     );
@@ -573,6 +618,17 @@ describe("Phase 7 — Truthful review UI, concurrency conflict recovery, and lab
           return new Response(makePdfBytes(), {
             status: 200,
             headers: { "Content-Type": "application/pdf" },
+          });
+        }
+        if (url.endsWith("/api/exports")) {
+          return new Response("id,filename\n1,persisted-bill.pdf", {
+            status: 200,
+            headers: {
+              "Content-Type": "text/csv; charset=utf-8",
+              "Content-Disposition": 'attachment; filename="gathr_documents.csv"',
+              "X-Gathr-Export-Status": "complete",
+              "X-Gathr-Export-Included-Count": "2",
+            },
           });
         }
         return new Response("{}", { status: 404 });
@@ -678,6 +734,17 @@ describe("Phase 7 — Truthful review UI, concurrency conflict recovery, and lab
             }),
             { status: 200, headers: { "Content-Type": "application/json" } },
           );
+        }
+        if (url.endsWith("/api/exports")) {
+          return new Response("id,filename\n1,persisted-bill.pdf", {
+            status: 200,
+            headers: {
+              "Content-Type": "text/csv; charset=utf-8",
+              "Content-Disposition": 'attachment; filename="gathr_documents.csv"',
+              "X-Gathr-Export-Status": "complete",
+              "X-Gathr-Export-Included-Count": "2",
+            },
+          });
         }
         return new Response("{}", { status: 404 });
       }),

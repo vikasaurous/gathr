@@ -826,3 +826,60 @@ export async function computeReviewDocumentRequestHash(
   const digest = await globalThis.crypto.subtle.digest("SHA-256", encoded);
   return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
 }
+
+export const PERSISTED_EXPORT_FORMATS = ["csv", "xlsx", "pdf", "zip"] as const;
+export type PersistedExportFormat = (typeof PERSISTED_EXPORT_FORMATS)[number];
+
+export const PERSISTED_EXPORT_REVIEW_SCOPES = [
+  "all",
+  "verified_only",
+  "verified_and_review",
+  "exclude_excluded",
+] as const;
+export type PersistedExportReviewScope = (typeof PERSISTED_EXPORT_REVIEW_SCOPES)[number];
+
+export type PersistedExportScope = "batch" | "workspace";
+
+export const MAX_EXPORT_DOCUMENTS = 5000;
+export const MAX_ZIP_EXPORT_DOCUMENTS = 250;
+export const MAX_ZIP_EXPORT_BYTES = 250 * 1024 * 1024;
+
+export interface PersistedExportRequest {
+  format: PersistedExportFormat;
+  scope: PersistedExportScope;
+  batchId?: string | undefined;
+  documentIds?: string[] | undefined;
+  reviewScope?: PersistedExportReviewScope | undefined;
+  uploadStatus?: DocumentUploadStatus | undefined;
+  query?: string | undefined;
+}
+
+export interface PersistedExportFailure {
+  documentId: string;
+  filename: string;
+  code: string;
+  reason: string;
+}
+
+export function isDocumentUploadStatus(value: unknown): value is DocumentUploadStatus {
+  return (
+    typeof value === "string" &&
+    (value === "pending_upload" ||
+      value === "uploading" ||
+      value === "uploaded" ||
+      value === "failed")
+  );
+}
+
+export function isPersistedExportFormat(value: unknown): value is PersistedExportFormat {
+  return (
+    typeof value === "string" && (PERSISTED_EXPORT_FORMATS as readonly string[]).includes(value)
+  );
+}
+
+export function isPersistedExportReviewScope(value: unknown): value is PersistedExportReviewScope {
+  return (
+    typeof value === "string" &&
+    (PERSISTED_EXPORT_REVIEW_SCOPES as readonly string[]).includes(value)
+  );
+}

@@ -3,6 +3,7 @@ import JSZip from "jszip";
 import * as XLSX from "xlsx";
 import {
   formatReviewStatusLabel,
+  stripControlChars,
   type DocumentReviewStatus,
   type DocumentUploadStatus,
 } from "./ingestion-types";
@@ -362,6 +363,235 @@ export function persistedDocumentsToCsv(documents: PersistedExportDocument[]): s
     ...rows.map((r) => r.join(",")),
   ].join("\r\n");
   return `\uFEFF${csvBody}`;
+}
+
+const PERSISTED_EXPORT_HEADERS = [
+  "Document ID",
+  "Filename",
+  "Batch",
+  "Batch ID",
+  "Upload status",
+  "Review status",
+  "MIME type",
+  "File size (bytes)",
+  "Uploaded at",
+  "Review updated at",
+  "Created at",
+] as const;
+
+export function buildPersistedExportBaseName(label: string, date: Date = new Date()): string {
+  const slugLabel =
+    label
+      .replace(/\W+/g, "-")
+      .toLowerCase()
+      .replace(/^-+|-+$/g, "") || "documents";
+  const datePart = date.toISOString().slice(0, 10);
+  return `gathr_${slugLabel}_${datePart}`;
+}
+
+/**
+ * Produces a safe, traversal-free, unique `.pdf` archive entry filename for a persisted document.
+ */
+export function buildSafePersistedPdfName(
+  originalFilename: string,
+  documentId: string,
+  existingNames: Set<string> = new Set(),
+): string {
+  // Strip control chars, path separators, traversal sequences, and illegal filesystem chars
+  let cleaned = stripControlChars(originalFilename)
+    .replace(/\.\.+/g, "_")
+    .replace(/[/\\]/g, "_")
+    .replace(/[:*?"<>|]/g, "")
+    .trim()
+    .replace(/^\.+/, "");
+
+  cleaned = cleaned.replace(/\.pdf$/i, "").trim();
+  if (!cleaned) {
+    cleaned = `document_${documentId}`;
+  }
+  if (cleaned.length > 120) {
+    cleaned = cleaned.slice(0, 120).trim();
+  }
+
+  const candidate = `${cleaned}.pdf`;
+  if (!existingNames.has(candidate)) {
+    existingNames.add(candidate);
+    return candidate;
+  }
+
+  const baseName = cleaned;
+  let counter = 1;
+  let uniqueName = `${baseName} (${counter}).pdf`;
+  while (existingNames.has(uniqueName)) {
+    counter++;
+    uniqueName = `${baseName} (${counter}).pdf`;
+  }
+  existingNames.add(uniqueName);
+  return uniqueName;
+}
+
+/**
+ * Generates an Excel workbook (.xlsx) for persisted workspace documents using only
+ * persisted metadata and canonical review labels.
+ * Untrusted text is stored as explicit string cells (`t: "s"`) with formula property `f` deleted.
+ */
+export function persistedDocumentsToXlsx(documents: PersistedExportDocument[]): Uint8Array {
+  const wb = XLSX.utils.book_new();
+  const ws: XLSX.WorkSheet = {};
+  const range: XLSX.Range = {
+    s: { r: 0, c: 0 },
+    e: { r: documents.length, c: PERSISTED_EXPORT_HEADERS.length - 1 },
+  };
+
+  PERSISTED_EXPORT_HEADERS.forEach((h, colIdx) => {
+    const cellRef = XLSX.utils.encode_cell({ r: 0, c: colIdx });
+    ws[cellRef] = { t: "s", v: h };
+  });
+
+  documents.forEach((doc, rowIdx) => {
+    const r = rowIdx + 1;
+    const reviewLabel =
+      doc.status === "uploaded" ? formatReviewStatusLabel(doc.reviewStatus) : "Not uploaded";
+    const uploadLabel = UPLOAD_STATUS_LABELS[doc.status] ?? doc.status;
+
+    const cells: Array<{ type: "s" | "n"; value: string | number; z?: string }> = [
+      { type: "s", value: doc.id },
+      { type: "s", value: doc.originalFilename },
+      { type: "s", value: doc.batchName ?? doc.batchId },
+      { type: "s", value: doc.batchId },
+      { type: "s", value: uploadLabel },
+      { type: "s", value: reviewLabel },
+      { type: "s", value: doc.mimeType },
+      { type: "n", value: doc.fileSizeBytes, z: "#,##0" },
+      { type: "s", value: doc.uploadedAt ?? "" },
+      { type: "s", value: doc.reviewUpdatedAt ?? "" },
+      { type: "s", value: doc.createdAt },
+    ];
+
+    cells.forEach((cell, colIdx) => {
+      const cellRef = XLSX.utils.encode_cell({ r, c: colIdx });
+      if (cell.type === "n" && Number.isFinite(cell.value)) {
+        ws[cellRef] = { t: "n", v: cell.value, z: cell.z };
+      } else {
+        ws[cellRef] = { t: "s", v: String(cell.value) };
+        delete ws[cellRef].f;
+      }
+    });
+  });
+
+  ws["!ref"] = XLSX.utils.encode_range(range);
+  ws["!cols"] = PERSISTED_EXPORT_HEADERS.map((h, colIndex) => {
+    let maxLen = h.length;
+    for (let r = 1; r <= documents.length; r++) {
+      const cellRef = XLSX.utils.encode_cell({ r, c: colIndex });
+      const val = ws[cellRef]?.v;
+      const len = val !== undefined && val !== null ? String(val).length : 0;
+      if (len > maxLen) maxLen = len;
+    }
+    return { wch: Math.min(Math.max(maxLen + 3, 10), 45) };
+  });
+
+  XLSX.utils.book_append_sheet(wb, ws, "Documents");
+  const arrayBuffer = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+  return new Uint8Array(arrayBuffer);
+}
+
+/**
+ * Generates a multi-page A4 PDF report summarizing persisted workspace documents.
+ * Uses only persisted metadata and canonical review labels.
+ */
+export async function persistedDocumentsToPdfReport(
+  documents: PersistedExportDocument[],
+  options?: { title?: string | undefined; scopeLabel?: string | undefined },
+): Promise<Uint8Array> {
+  const doc = new jsPDF({ format: "a4", unit: "mm" });
+  const title = cleanPdfText(options?.title, "GATHR Document Export Report");
+  const scopeLabel = cleanPdfText(options?.scopeLabel, "Workspace documents");
+  const generatedAt = new Date().toISOString();
+
+  const pageWidth = 210;
+  const margin = 14;
+  const contentWidth = pageWidth - margin * 2;
+  let y = 18;
+  let pageNum = 1;
+
+  const drawHeader = () => {
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(14);
+    doc.setTextColor(28, 25, 23);
+    doc.text(title, margin, y);
+    y += 6;
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
+    doc.setTextColor(87, 83, 78);
+    doc.text(
+      `Scope: ${scopeLabel}  |  Records: ${documents.length}  |  Generated: ${generatedAt}`,
+      margin,
+      y,
+    );
+    y += 4;
+    doc.setDrawColor(214, 211, 209);
+    doc.line(margin, y, pageWidth - margin, y);
+    y += 6;
+  };
+
+  drawHeader();
+
+  documents.forEach((item, index) => {
+    if (y > 266) {
+      doc.setFontSize(8);
+      doc.setTextColor(120, 113, 108);
+      doc.text(`Page ${pageNum}`, pageWidth - margin, 288, { align: "right" });
+      doc.addPage("a4");
+      pageNum++;
+      y = 18;
+      drawHeader();
+    }
+
+    const safeFilename = cleanPdfText(item.originalFilename, "document.pdf");
+    const safeBatch = cleanPdfText(item.batchName ?? item.batchId, item.batchId);
+    const uploadLabel = UPLOAD_STATUS_LABELS[item.status] ?? item.status;
+    const reviewLabel =
+      item.status === "uploaded" ? formatReviewStatusLabel(item.reviewStatus) : "Not uploaded";
+    const sizeKb = `${Math.max(1, Math.round(item.fileSizeBytes / 1024))} KB`;
+    const uploadedStr = item.uploadedAt
+      ? item.uploadedAt.slice(0, 19).replace("T", " ") + " UTC"
+      : "—";
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(9.5);
+    doc.setTextColor(28, 25, 23);
+    const titleLine = doc.splitTextToSize(`${index + 1}. ${safeFilename}`, contentWidth);
+    doc.text(titleLine.slice(0, 2), margin, y);
+    y += Math.min(titleLine.length, 2) * 4.5;
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8.5);
+    doc.setTextColor(68, 64, 60);
+    const metaLine = doc.splitTextToSize(
+      `Batch: ${safeBatch}  |  Upload: ${uploadLabel}  |  Review: ${reviewLabel}  |  Size: ${sizeKb}  |  Uploaded: ${uploadedStr}`,
+      contentWidth,
+    );
+    doc.text(metaLine.slice(0, 2), margin, y);
+    y += Math.min(metaLine.length, 2) * 4;
+
+    doc.setFontSize(7.5);
+    doc.setTextColor(120, 113, 108);
+    doc.text(`Document ID: ${item.id}  |  Batch ID: ${item.batchId}`, margin, y);
+    y += 4;
+
+    doc.setDrawColor(231, 229, 228);
+    doc.line(margin, y, pageWidth - margin, y);
+    y += 4;
+  });
+
+  doc.setFontSize(8);
+  doc.setTextColor(120, 113, 108);
+  doc.text(`Page ${pageNum}`, pageWidth - margin, 288, { align: "right" });
+
+  const arrayBuffer = doc.output("arraybuffer");
+  return new Uint8Array(arrayBuffer);
 }
 
 /**
